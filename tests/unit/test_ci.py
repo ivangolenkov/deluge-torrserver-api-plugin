@@ -36,6 +36,25 @@ def test_workflow_guards_and_pins():
     assert "if: always()" in text and "run: make ci-check" in text
     assert len(re.findall(r"uses: actions/[\w-]+@[0-9a-f]{40}", text)) == 2
     assert "secrets." not in text and "contents: write" not in text
+    for expected in (
+        "ubuntu-24.04-arm",
+        "linux/arm64",
+        "make docker-build test-docker",
+    ):
+        assert expected in text
+
+
+def test_release_workflow_cannot_publish_from_manual_or_pr_runs():
+    text = (
+        Path(__file__).resolve().parents[2] / ".github/workflows/release.yml"
+    ).read_text()
+    assert "uses: ./.github/workflows/checks.yml" in text
+    assert "github.event_name == 'push' && github.ref_type == 'tag'" in text
+    assert "make release-verify" in text and "no rebuild" in text
+    assert "environment: release" in text
+    assert "RELEASE_ACCEPTANCE_APPROVED" in text
+    assert "--clobber" not in text
+    assert text.count("contents: write") == 1
 
 
 @pytest.mark.parametrize("result", [0, 7, "timeout", "missing_docker"])

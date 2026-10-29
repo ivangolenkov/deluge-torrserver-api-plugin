@@ -7,9 +7,17 @@ TEST_PROFILE_ROOT ?=
 CI_PLATFORM ?= linux/amd64
 CI_IMAGE ?= deluge-stream-check:local
 RUN = $(VENV)/bin/python
+VERSION = $(shell $(PYTHON) tools/version.py)
+EGG = $(DIST_DIR)/Stream-$(VERSION)-py3.11.egg
+RELEASE_TAG ?= v$(VERSION)
+COMPOSE ?= docker compose
+PRODUCT_IMAGE ?= deluge-stream:local
 
 .PHONY: help bootstrap lint format-check check-docs test-unit test-persistence test-integration test-downloads test-web test-web-split test build smoke check ci-check clean
 help:
+	@echo 'docker-build/up/down: product Compose; prepare RPC secret; configure public_base_url in UI.'
+	@echo 'candidate-check: build + installed smoke + manifest/checksums (LICENSE may be deferred).'
+	@echo 'release-check: candidate-check + LICENSE/clean checkout/tag gates; never publishes.'
 	@echo 'Stream: core/web + FIFO + TorrServer HTTP/streaming; client acceptance pending.'
 	@echo 'bootstrap: venv + pinned tools; Linux runtime also needs python3-libtorrent.'
 	@echo 'lint format-check check-docs test-unit: offline source checks after bootstrap.'
@@ -17,6 +25,8 @@ help:
 	@echo 'test-persistence: SQLite policy/migrations/worker and recovery-ledger tests.'
 	@echo 'test-integration: SQLite, native HTTP/streaming/QoS/preload/restart, policy/FIFO, guards, ZIP64.'
 	@echo 'test: unit + integration; check: docs/lint/format/test/build/smoke.'
+	@echo 'test-packaging: two clean-directory builds; check also verifies candidate manifest/checksums.'
+	@echo 'test-docker: isolated product Compose recreation; PRODUCT_IMAGE selects a prebuilt image.'
 	@echo 'test-downloads: native file/ZIP/tickets + large ZIP64; test-web: real Chromium + core/web.'
 	@echo 'ci-check: Docker build + isolated make check, logs in build/ci (CI_PLATFORM/CI_IMAGE).'
 	@echo 'clean: only default generated build/dist/tool caches (never Deluge profiles).'
@@ -40,16 +50,41 @@ build:
 test-integration: build test-persistence
 	$(RUN) tools/runtime_check.py --mode integration --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
 test-downloads: build
-	$(RUN) -I tests/runtime/downloads.py --egg "$(DIST_DIR)/Stream-0.0.1-py3.11.egg" --profile-root "$(TEST_PROFILE_ROOT)"
+	$(RUN) -I tests/runtime/downloads.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
 	$(RUN) tools/zip_probe.py
 test-web: build
-	$(RUN) -I tests/runtime/web_browser.py --egg "$(DIST_DIR)/Stream-0.0.1-py3.11.egg" --profile-root "$(TEST_PROFILE_ROOT)"
+	$(RUN) -I tests/runtime/web_browser.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
 test-web-split:
 	$(PYTHON) tools/split_web_check.py --image "$(CI_IMAGE)" --platform "$(CI_PLATFORM)"
 test: test-unit test-integration test-downloads test-web
 smoke: build
 	$(RUN) tools/runtime_check.py --mode smoke --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
-check: check-docs lint format-check test smoke
+check: check-docs lint format-check test smoke test-packaging candidate-check
+.PHONY: test-packaging
+test-packaging:
+	$(RUN) tools/packaging_check.py
+.PHONY: candidate-check release-check
+candidate-check: smoke
+	$(RUN) tools/release_bundle.py --create --dist "$(DIST_DIR)"
+release-check: candidate-check
+	$(RUN) tools/release_bundle.py --dist "$(DIST_DIR)" --strict --tag "$(RELEASE_TAG)"
+.PHONY: docker-build docker-up docker-down
+docker-build:
+	STREAM_IMAGE="$(PRODUCT_IMAGE)" $(COMPOSE) build core
+docker-up:
+	$(COMPOSE) up -d
+docker-down:
+	$(COMPOSE) down
+.PHONY: test-docker
+test-docker:
+	$(PYTHON) tools/docker_check.py --image "$(PRODUCT_IMAGE)" --platform "$(CI_PLATFORM)"
+.PHONY: ci-candidate smoke-existing release-verify
+ci-candidate:
+	docker run --rm --platform "$(CI_PLATFORM)" --network none -v "$(CURDIR):/work" "$(CI_IMAGE)" make candidate-check VENV=/opt/venv
+smoke-existing:
+	$(RUN) tools/runtime_check.py --mode smoke --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
+release-verify: smoke-existing
+	$(RUN) tools/release_bundle.py --dist "$(DIST_DIR)" --strict --tag "$(RELEASE_TAG)"
 ci-check:
 	$(PYTHON) tools/ci_check.py --platform "$(CI_PLATFORM)" --image "$(CI_IMAGE)"
 clean:

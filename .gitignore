@@ -8,3 +8,5 @@
 /.playwright-mcp/
 __pycache__/
 *.py[cod]
+/secrets/
+/.env

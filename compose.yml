@@ -1,0 +1,42 @@
+name: deluge-stream
+services:
+  core:
+    image: ${STREAM_IMAGE:-deluge-stream:local}
+    build: .
+    command: core
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      STREAM_RPC_PASSWORD_FILE: /run/secrets/rpc_password
+    secrets: [rpc_password]
+    ports:
+      - "${STREAM_BIND_IP:-127.0.0.1}:${STREAM_HTTP_PORT:-8090}:8090"
+      - "${STREAM_BIND_IP:-127.0.0.1}:${STREAM_PEER_PORT:-6881}:6881"
+      - "${STREAM_BIND_IP:-127.0.0.1}:${STREAM_PEER_PORT:-6881}:6881/udp"
+    volumes:
+      - core-config:/config
+      - downloads:/downloads
+    restart: unless-stopped
+    stop_grace_period: 60s
+  web:
+    image: ${STREAM_IMAGE:-deluge-stream:local}
+    command: web
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      STREAM_RPC_PASSWORD_FILE: /run/secrets/rpc_password
+    secrets: [rpc_password]
+    ports:
+      - "${STREAM_BIND_IP:-127.0.0.1}:${STREAM_WEB_PORT:-8112}:8112"
+    volumes:
+      - web-config:/config
+    depends_on: [core]
+    restart: unless-stopped
+    stop_grace_period: 60s
+volumes:
+  core-config:
+  web-config:
+  downloads:
+secrets:
+  rpc_password:
+    file: ${STREAM_RPC_PASSWORD_PATH:-./secrets/rpc_password.txt}

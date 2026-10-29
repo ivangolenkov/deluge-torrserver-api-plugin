@@ -5,6 +5,11 @@ import subprocess
 import uuid
 from pathlib import Path
 
+try:
+    from tools.version import egg_name
+except ModuleNotFoundError:
+    from version import egg_name
+
 
 def run(*args, **kwargs):
     return subprocess.run(["docker", *args], check=True, timeout=180, **kwargs)
@@ -16,7 +21,7 @@ def main():
     parser.add_argument("--platform", default="linux/amd64")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    egg = root / "dist/Stream-0.0.1-py3.11.egg"
+    egg = root / "dist" / egg_name()
     if not egg.is_file():
         raise SystemExit("Run make build using Python 3.11 before test-web-split")
     name = "stream-split-" + uuid.uuid4().hex

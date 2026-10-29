@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from version import egg_name
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["smoke", "integration"], required=True)
 parser.add_argument("--dist", required=True)
@@ -35,9 +37,7 @@ versions.update(
     sqlite=sqlite3.sqlite_version,
 )
 print(json.dumps(versions, sort_keys=True), flush=True)
-egg = Path(args.dist).resolve() / (
-    f"Stream-0.0.1-py{sys.version_info.major}.{sys.version_info.minor}.egg"
-)
+egg = Path(args.dist).resolve() / egg_name()
 if not egg.is_file():
     raise SystemExit(f"Build the current Python artifact first: {egg}")
 probe = "daemon_smoke.py" if args.mode == "smoke" else "probe.py"

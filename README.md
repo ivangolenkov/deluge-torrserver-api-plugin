@@ -10,6 +10,13 @@ SQLite, FIFO и встроенные TorrServer HTTP/Range/preload с неско
 контейнеры проверены. [Отчёт и ограничения](tasks/implementation/phase4-report.md).
 Hosted run и релиза нет.
 
+Фаза 5 в работе: локальная упаковка и автоматизация продолжаются, LICENSE
+пользователь создаст позже. Для выпуска также нужны GitHub runs и NAS-приёмка.
+[Текущий отчёт](tasks/implementation/phase5-report.md).
+
+Локальный candidate, manifest/checksums, Docker Compose, volumes и release gates:
+[инструкция поставки](docs/delivery.md). Это ещё не завершённая фаза 5 и не релиз.
+
 При enable Core открывает `<config deluged>/stream.sqlite`: WAL, последовательные
 миграции, политика временности/публикации, монотонный FIFO-ключ, hash aliases,
 metadata/viewed и настройки. SQLite и проверки файловых путей выполняются
@@ -482,4 +489,4 @@ native file entries в проверке путей, 32 DB-работы/упра�
 - [План и статус фаз](tasks/README.md) — этапы 0–5 и обязательный Makefile/CI/CD.
 - [Отчёты](tasks/implementation/README.md) — что выполнено и чем проверено.
 
-Завершены [фаза 0](tasks/phase0-feasibility-and-tooling.md), [фаза 1](tasks/phase1-core-persistence-and-ci.md), [фаза 2](tasks/phase2-retention-and-transfer-lifecycle.md) и [фаза 4](tasks/phase4-downloads-zip-and-webui.md). [Фаза 3](tasks/phase3-torrserver-and-streaming.md) в работе: HTTP/streaming реализованы, приёмка Lampa/Num не выполнена. Такой порядок прямо разрешён пользователем. Фаза 5 не начата.
+Завершены [фаза 0](tasks/phase0-feasibility-and-tooling.md), [фаза 1](tasks/phase1-core-persistence-and-ci.md), [фаза 2](tasks/phase2-retention-and-transfer-lifecycle.md) и [фаза 4](tasks/phase4-downloads-zip-and-webui.md). [Фаза 3](tasks/phase3-torrserver-and-streaming.md) в работе: HTTP/streaming реализованы, приёмка Lampa/Num не выполнена. Такой порядок прямо разрешён пользователем. [Фаза 5](tasks/phase5-packaging-and-release.md) в работе; LICENSE отложен пользователем.

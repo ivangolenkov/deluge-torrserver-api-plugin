@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 import libtorrent as lt
@@ -32,7 +33,9 @@ raw = lt.bencode(
 
 def profile(path):
     (path / "plugins").mkdir(parents=True)
-    shutil.copy2("/Stream.egg", path / "plugins/Stream-0.0.1-py3.11.egg")
+    with zipfile.ZipFile("/Stream.egg") as archive:
+        version = BytesParser().parsebytes(archive.read("EGG-INFO/PKG-INFO"))["Version"]
+    shutil.copy2("/Stream.egg", path / f"plugins/Stream-{version}-py3.11.egg")
 
 
 if sys.argv[1] == "core":

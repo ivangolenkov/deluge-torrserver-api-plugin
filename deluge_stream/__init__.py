@@ -1,7 +1,7 @@
 """Deluge entry point; pure helpers do not require importing Deluge."""
 
-__version__ = "0.0.1"
-API_VERSION = 1
+from ._version import API_VERSION as API_VERSION
+from ._version import __version__ as __version__
 
 
 def CorePlugin(plugin_name):
