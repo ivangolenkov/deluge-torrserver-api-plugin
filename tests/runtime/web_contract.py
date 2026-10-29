@@ -38,6 +38,12 @@ def main(reactor):
             "plugin_version": __version__,
             "storage_active": False,
             "token": "must-not-proxy",
+            "streaming": {
+                "sessions": 2,
+                "payload_bytes_reserved": 128,
+                "token": "must-not-proxy",
+                "last_error": "/secret/path",
+            },
         }
         for value in (
             None,
@@ -50,6 +56,9 @@ def main(reactor):
         replies.append(valid)
         result = yield web.get_web_status()
         assert result["available"] is True and "token" not in result
+        assert result["streaming"]["sessions"] == 2
+        assert result["streaming"]["last_error"] == "stream_error"
+        assert "must-not-proxy" not in str(result) and "/secret/path" not in str(result)
         replies.append(defer.fail(RuntimeError("secret remote details")))
         result = yield web.get_web_status()
         assert result["reason"] == "core_unavailable" and "secret" not in str(result)

@@ -63,6 +63,11 @@ if args.mode == "integration":
         "cleanup.py",
         "policy_smoke.py",
         "policy_crash_probe.py",
+        "retention.py",
+        "retention_crash.py",
+        "qos_resume_probe.py",
+        "streaming.py",
+        "streaming_lifecycle.py",
     ):
         subprocess.run(
             [

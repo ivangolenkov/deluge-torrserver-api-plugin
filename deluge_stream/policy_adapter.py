@@ -1,5 +1,6 @@
 """Version-specific Deluge catalogue/auth/lifecycle access, reactor only."""
 
+import base64
 import platform
 import sqlite3
 import sys
@@ -11,6 +12,7 @@ import libtorrent as lt
 import twisted
 from deluge.common import get_version
 from deluge.configmanager import get_config_dir
+from twisted.internet import defer
 
 from .adapter import hash_aliases
 
@@ -41,6 +43,8 @@ class PolicyAdapter:
         self.events = component.get("EventManager")
         self.plugins = component.get("CorePluginManager")
         self.rpc = component.get("RPCServer")
+        self.alerts = component.get("AlertManager")
+        self.delete_wait = None
         self.changed = changed
         self.keys = {}
         self.fresh = set()
@@ -57,6 +61,8 @@ class PolicyAdapter:
         )
         for name, handler in self.handlers.items():
             self.events.register_event_handler(name, handler)
+        self.alerts.register_handler("torrent_deleted_alert", self._deleted)
+        self.alerts.register_handler("torrent_delete_failed_alert", self._delete_failed)
 
     @staticmethod
     def database_path():
@@ -143,6 +149,114 @@ class PolicyAdapter:
             result.append((tid, torrent.handle.save_path(), names))
         return tuple(sorted(result))
 
+    def deletion_catalogue(self):
+        result = []
+        total = 0
+        for tid, torrent in tuple(self.manager.torrents.items()):
+            info = torrent.handle.torrent_file()
+            if info is None:
+                raise RuntimeError("metadata_pending")
+            if torrent.moving_storage_dest_path or torrent.forcing_recheck:
+                raise RuntimeError("operation_conflict")
+            files = info.files()
+            total += files.num_files() + 1
+            if total > 10000:
+                raise RuntimeError("path_check_limit")
+            if any(
+                files.file_flags(i) & files.flag_symlink
+                for i in range(files.num_files())
+            ):
+                raise RuntimeError("unsafe_paths")
+            # Native delete_files visits pads as well as payload and partfile.
+            names = tuple(files.file_path(i) for i in range(files.num_files()))
+            result.append((tid, torrent.handle.save_path(), (*names, f".{tid}.parts")))
+        return tuple(sorted(result))
+
+    def watch_deletion(self, tid, key, reactor, timeout):
+        if self.delete_wait is not None:
+            raise RuntimeError("operation_conflict")
+        current = self.keys.get(tid)
+        if (
+            current is None
+            or current[1] != key
+            or self.manager.torrents.get(tid) is not current[0]
+        ):
+            raise RuntimeError("operation_conflict")
+        waiter = defer.Deferred(lambda _: self._clear_delete_wait())
+        timer = reactor.callLater(timeout, self._delete_timeout, waiter)
+        self.delete_wait = (current[0].handle, waiter, timer)
+        return waiter
+
+    def _clear_delete_wait(self):
+        old, self.delete_wait = self.delete_wait, None
+        if old is not None and old[2].active():
+            old[2].cancel()
+
+    def _delete_timeout(self, waiter):
+        self._clear_delete_wait()
+        if not waiter.called:
+            waiter.callback("timeout")
+
+    def _delete_result(self, alert, result):
+        entry = self.delete_wait
+        if entry is not None and alert.handle == entry[0]:
+            self._clear_delete_wait()
+            if not entry[1].called:
+                entry[1].callback(result)
+
+    def _deleted(self, alert):
+        self._delete_result(alert, "deleted")
+
+    def _delete_failed(self, alert):
+        self._delete_result(alert, "delete_failed")
+
+    def remove_with_data(self, tid, key):
+        current = self.keys.get(tid)
+        if (
+            current is None
+            or current[1] != key
+            or self.manager.torrents.get(tid) is not current[0]
+        ):
+            raise RuntimeError("operation_conflict")
+        return component.get("Core").remove_torrent(tid, True)
+
+    def add_source(self, source, owner, directory):
+        options = {"owner": owner, "download_location": directory}
+        core = component.get("Core")
+        if isinstance(source, bytes):
+            return core.add_torrent_file(
+                "stream.torrent", base64.b64encode(source), options
+            )
+        return core.add_torrent_magnet(source, options)
+
+    def remove_record(self, tid):
+        return component.get("Core").remove_torrent(tid, False)
+
+    def default_download_root(self):
+        return str(
+            Path(component.get("Core").config["download_location"]) / "deluge-stream"
+        )
+
+    def native_status(self, tid):
+        torrent = self.manager.torrents[tid]
+        info = torrent.handle.torrent_file()
+        status = torrent.handle.status()
+        return torrent, info, status
+
+    def piece_status(self, tid, piece):
+        handle = self.manager.torrents[tid].handle
+        return (
+            handle.have_piece(piece),
+            handle.piece_priority(piece),
+            handle.torrent_file().piece_size(piece),
+        )
+
+    def native_progress(self, tid):
+        return self.manager.torrents[tid].handle.file_progress()
+
+    def source_path(self, tid):
+        return self.manager.torrents[tid].handle.save_path()
+
     def register_status(self, fields):
         for name, function in fields.items():
             self.plugins.register_status_field(name, function)
@@ -153,3 +267,7 @@ class PolicyAdapter:
         for name in fields:
             self.plugins.deregister_status_field(name)
         self.keys.clear()
+        if self.delete_wait is not None:
+            self.delete_wait[1].cancel()
+        self.alerts.deregister_handler(self._deleted)
+        self.alerts.deregister_handler(self._delete_failed)

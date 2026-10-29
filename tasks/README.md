@@ -25,12 +25,21 @@ hardlink-контракта согласован [сброс связей на �
 | --- | --- | --- | --- |
 | 0 | [Проверка реализуемости и инструменты](phase0-feasibility-and-tooling.md) | Подтверждённый runtime, прототип, fixtures, рабочий Makefile и начальные инструкции | Завершена |
 | 1 | [Каркас, persistence, lifecycle и CI](phase1-core-persistence-and-ci.md) | Core/web package, SQLite, адаптер, политика и автоматические проверки GitHub Actions | Завершена |
-| 2 | [FIFO и защита передач](phase2-retention-and-transfer-lifecycle.md) | Безопасная очистка, refcount/reservations и восстановление удаления | Не начата |
-| 3 | [TorrServer и streaming QoS](phase3-torrserver-and-streaming.md) | HTTP/Range, preload, reader, несколько просмотров, временные приоритеты | Не начата |
+| 2 | [FIFO и защита передач](phase2-retention-and-transfer-lifecycle.md) | Безопасная очистка, refcount/reservations и восстановление удаления | Завершена |
+| 3 | [TorrServer и streaming QoS](phase3-torrserver-and-streaming.md) | HTTP/Range, preload, reader, несколько просмотров, временные приоритеты | В работе |
 | 4 | [Файлы, ZIP и Web UI](phase4-downloads-zip-and-webui.md) | Готовые downloads, ZIP64, настройки и состояния в стандартном Web UI | Не начата |
 | 5 | [Поставка, нагрузка и автоматический выпуск](phase5-packaging-and-release.md) | Docker, полная приёмка, документация и публикация через GitHub Actions | Не начата |
 
 После фазы обновить её файл, эту таблицу и tasks/implementation/phaseN-report.md. Незавершённые пункты не отмечаются выполненными. Значимая частичная работа отражается в том же отчёте со статусом «В работе».
+
+Фаза 2 продолжена: пользователь подтвердил достаточность штатных гарантий
+Deluge/libtorrent. Фаза завершена: FIFO/lifecycle, native runtime и crash-границы
+проверены на ARM64/x86_64. [Отчёт](implementation/phase2-report.md).
+
+Фаза 3: реализованы HTTP/Range, reader, preload и агрегированные deadlines.
+Пользователь разрешил остаточные native piece priorities; QoS journal не нужен,
+прежний recovery-блокер снят. Полная приёмка Lampa/Num ещё не выполнена.
+Проверки и ограничения — в [отчёте фазы 3](implementation/phase3-report.md).
 
 ## Обязательные сквозные результаты
 

@@ -10,12 +10,12 @@ RUN = $(VENV)/bin/python
 
 .PHONY: help bootstrap lint format-check check-docs test-unit test-persistence test-integration test build smoke check ci-check clean
 help:
-	@echo 'Stream: core/web + policy storage; no FIFO cleanup or TorrServer yet.'
+	@echo 'Stream: core/web + FIFO + TorrServer HTTP/streaming; client acceptance pending.'
 	@echo 'bootstrap: venv + pinned tools; Linux runtime also needs python3-libtorrent.'
 	@echo 'lint format-check check-docs test-unit: offline source checks after bootstrap.'
 	@echo 'build: Python-versioned egg in DIST_DIR; smoke: install/enable/disable that egg.'
 	@echo 'test-persistence: SQLite policy/migrations/worker and recovery-ledger tests.'
-	@echo 'test-integration: SQLite, Deluge, HTTP, metadata, policy RPC/restart/crash gate, guards, ZIP64.'
+	@echo 'test-integration: SQLite, native HTTP/streaming/QoS/preload/restart, policy/FIFO, guards, ZIP64.'
 	@echo 'test: unit + integration; check: docs/lint/format/test/build/smoke.'
 	@echo 'ci-check: Docker build + isolated make check, logs in build/ci (CI_PLATFORM/CI_IMAGE).'
 	@echo 'clean: only default generated build/dist/tool caches (never Deluge profiles).'

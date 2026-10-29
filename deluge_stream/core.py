@@ -16,6 +16,7 @@ from .adapter import PieceAdapter, deregister_rpc
 from .lifecycle import PolicyService
 from .policy_adapter import PolicyAdapter, check_runtime
 from .ranges import InvalidRange, UnsatisfiableRange, resolve_range
+from .torrserver import TorrServer
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class Core(CorePluginBase):
         self.policy = None
         self.listener = None
         self.adapter = None
+        self.server = None
         self._shutdown_id = reactor.addSystemEventTrigger(
             "before", "shutdown", self._shutdown
         )
@@ -46,6 +48,10 @@ class Core(CorePluginBase):
             site = Site(Probe(self))
             site.log = lambda _: None  # No query strings/tokens in access logs.
             self.listener = reactor.listenTCP(0, site, interface="127.0.0.1")
+            self.server = TorrServer(reactor, self.policy)
+            self.policy.streaming = self.server.streams
+            self.policy.research_active = lambda: self.active is not None
+            yield self.server.start()
         except Exception:
             yield self._close(reset=False)
             raise
@@ -99,10 +105,15 @@ class Core(CorePluginBase):
 
     @defer.inlineCallbacks
     def _do_close(self, *, reset):
+        if self.policy is not None:
+            self.policy.quiescing = True
+            self.policy.retention.stop()
         if self.active is not None:
             request = self.active.request
             self.active.stopProducing()
             request.transport.abortConnection()
+        if self.server is not None:
+            yield self.server.close()
         if self.adapter is not None:
             self.adapter.close()
         self.token = None
@@ -146,6 +157,7 @@ class Core(CorePluginBase):
                 "shared_paths",
                 "catalogue_limit",
                 "path_check_limit",
+                "transfer_limit",
             }:
                 code = "storage_error"
             raise RuntimeError(code) from None
@@ -199,15 +211,36 @@ class Core(CorePluginBase):
     @export(10)
     def set_config(self, api_version, changes):
         self._version(api_version)
-        return self._public(
-            self.policy.set_config(changes, self.policy.adapter.actor())
-        )
+        return self._public(self._configure(changes, self.policy.adapter.actor()))
+
+    @defer.inlineCallbacks
+    def _configure(self, changes, actor):
+        result = yield self.policy.set_config(changes, actor)
+        if self.server is not None:
+            yield self.server.configure()
+        return result
 
     @export(10)
     def confirm_recovery(self, api_version, catalogue_token):
         self._version(api_version)
         return self._public(
             self.policy.confirm_recovery(catalogue_token, self.policy.adapter.actor())
+        )
+
+    @export(10)
+    def get_cleanup(self, api_version):
+        self._version(api_version)
+        if not self.policy.adapter.actor()[1]:
+            raise ValueError("forbidden")
+        return self.policy.retention.status()
+
+    @export(10)
+    def resolve_removal(self, api_version, operation_id, action):
+        self._version(api_version)
+        return self._public(
+            self.policy.resolve_removal(
+                operation_id, action, self.policy.adapter.actor()
+            )
         )
 
     @export(10)
@@ -233,7 +266,11 @@ class Core(CorePluginBase):
             "deluge_version": get_version(),
             "python_version": sys.version.split()[0],
             "storage_active": self.policy is not None and self.policy.ready,
-            "torrserver_active": False,
+            "torrserver_active": bool(
+                self.server
+                and self.server.listener
+                and self.policy.config["torrent_owner"]
+            ),
             "policy_rpc_available": self.policy is not None and self.policy.ready,
             "error": self.policy.error if self.policy is not None else "storage_error",
             "recovery_required": self.policy.recovery_required if self.policy else True,
@@ -242,6 +279,8 @@ class Core(CorePluginBase):
                 if self.policy and self.policy.adapter.actor()[1]
                 else None
             ),
+            "streaming": self.server.streams.diagnostics() if self.server else {},
+            "http_error": self.server.error if self.server else None,
         }
 
 
@@ -288,6 +327,16 @@ class Probe(Resource):
         if self.core.active is not None and request.method != b"HEAD":
             request.setResponseCode(429)
             return b"prototype allows one reader"
+        if request.method != b"HEAD" and self.core.server is not None:
+            streams = self.core.server.streams
+            budget = self.core.policy.config["payload_buffer_budget_mib"] * 1024**2
+            if (
+                streams.sessions
+                or streams.reserved
+                or piece_length * 2 + streams.HTTP_OVERHEAD > budget
+            ):
+                request.setResponseCode(503)
+                return b"probe buffer unavailable"
         request.setHeader(b"Content-Type", b"application/octet-stream")
         request.setHeader(b"Accept-Ranges", b"bytes")
         request.setHeader(b"Content-Length", str(stop - start).encode())
@@ -297,6 +346,10 @@ class Probe(Resource):
                 b"Content-Range", f"bytes {start}-{stop - 1}/{size}".encode()
             )
         if request.method == b"HEAD" or start == stop:
+            return b""
+        if not self.core.policy.ready or torrent_id not in self.core.policy.rows:
+            request.setResponseCode(503)
+            request.setHeader(b"Content-Length", b"0")
             return b""
         producer = PieceProducer(
             self.core,
@@ -308,9 +361,29 @@ class Probe(Resource):
             piece_length,
         )
         self.core.active = producer
-        request.registerProducer(producer, True)
         request.notifyFinish().addBoth(lambda _: producer.stopProducing())
-        producer.resumeProducing()
+        rid = self.core.policy.rows.get(torrent_id, {}).get("record_id", "")
+        admission = self.core.policy.acquire_transfer(
+            torrent_id,
+            rid,
+            ("research-probe", True),
+            "playback",
+            lambda reason: producer._failed(reason),
+        )
+
+        def admitted(lease):
+            if producer.closed:
+                lease.release()
+                return
+            producer.lease = lease
+            current = self.core.adapter.file_spec(torrent_id, file_id)[0]
+            if current is not torrent:
+                raise RuntimeError("operation_conflict")
+            request.registerProducer(producer, True)
+            producer.resumeProducing()
+
+        admission.addCallback(admitted)
+        admission.addErrback(producer._failed)
         return NOT_DONE_YET
 
 
@@ -328,6 +401,7 @@ class PieceProducer:
         self.paused = False
         self.closed = False
         self.scheduled = None
+        self.lease = None
 
     def pauseProducing(self):
         self.paused = True
@@ -348,6 +422,8 @@ class PieceProducer:
                 return
             self.position += count
             self.request.write(data[offset : offset + count])
+            if self.lease is not None:
+                self.lease.progress(count)
         if self.position == self.stop:
             self.stopProducing()
             self.request.finish()
@@ -385,6 +461,8 @@ class PieceProducer:
         if self.closed:
             return
         self.closed = True
+        if self.lease is not None:
+            self.lease.release()
         if self.scheduled is not None and self.scheduled.active():
             self.scheduled.cancel()
         if self.waiting is not None:

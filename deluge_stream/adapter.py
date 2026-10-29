@@ -6,7 +6,7 @@ from twisted.internet import defer
 from .layout import FileSpan, Layout
 
 
-def snapshot_layout(info):
+def snapshot_layout(info, *, compute_edges=True):
     storage = info.files()
     files = []
     first_last = set()
@@ -21,6 +21,8 @@ def snapshot_layout(info):
                 bool(storage.file_flags(index) & storage.flag_pad_file),
             )
         )
+        if not compute_edges:
+            continue
         # Same ranges as Deluge 2.2.0 first/last mode, including metadata pads.
         edge = int(0.02 * size)
         first_last.update(

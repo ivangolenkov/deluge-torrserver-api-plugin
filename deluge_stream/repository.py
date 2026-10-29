@@ -59,6 +59,17 @@ MIGRATIONS = (
         "UPDATE lifecycle SET recovery_required=CASE WHEN EXISTS "
         "(SELECT 1 FROM torrent_policy) THEN 1 ELSE 0 END",
     ),
+    (
+        "CREATE TABLE removals (operation_id TEXT PRIMARY KEY, "
+        "record_id TEXT NOT NULL, "
+        "torrent_id TEXT NOT NULL, live_key TEXT NOT NULL, fifo INTEGER NOT NULL, "
+        "revision INTEGER NOT NULL, stage TEXT NOT NULL, plan TEXT NOT NULL, "
+        "error TEXT NOT NULL DEFAULT '')",
+    ),
+    (
+        "CREATE TABLE source_adds (token TEXT PRIMARY KEY, owner TEXT NOT NULL, "
+        "hash TEXT NOT NULL, directory TEXT NOT NULL, stage TEXT NOT NULL)",
+    ),
 )
 
 
@@ -383,6 +394,82 @@ class Repository:
                 ).fetchone()[0]
             )
 
+    def begin_source_add(self, owner, hash_alias, directory):
+        text(owner, "owner", limit=256)
+        valid_alias(hash_alias)
+        text(directory, "directory", limit=4096)
+        with self._transaction(write=True) as db:
+            if (
+                db.execute(
+                    "SELECT count(*) FROM source_adds WHERE stage='pending'"
+                ).fetchone()[0]
+                >= 32
+            ):
+                raise RepositoryError("add_limit")
+            token = str(uuid.uuid4())
+            db.execute(
+                "INSERT INTO source_adds VALUES (?,?,?,?,'pending')",
+                (token, owner, hash_alias, directory),
+            )
+            return token
+
+    def finish_source_add(self, token, stage):
+        if stage not in {"done", "failed"}:
+            raise ValueError("invalid_request")
+        with self._transaction(write=True) as db:
+            db.execute(
+                "UPDATE source_adds SET stage=? WHERE token=? "
+                "AND (stage='pending' OR ?='done')",
+                (stage, token, stage),
+            )
+            db.execute(
+                "DELETE FROM source_adds WHERE token IN (SELECT token FROM source_adds "
+                "WHERE stage!='pending' ORDER BY rowid DESC LIMIT -1 OFFSET 32)"
+            )
+
+    def commit_source_add(self, token, record_id, revision, save, metadata):
+        boolean(save)
+        if metadata.keys() - METADATA_FIELDS or any(
+            not isinstance(value, str) for value in metadata.values()
+        ):
+            raise ValueError("invalid_request")
+        with self._transaction(write=True) as db:
+            row = self._record(db, record_id, revision)
+            intent = db.execute(
+                "SELECT * FROM source_adds WHERE token=? AND stage='pending'", (token,)
+            ).fetchone()
+            alias = db.execute(
+                "SELECT 1 FROM aliases WHERE record_id=? AND alias=?",
+                (record_id, intent["hash"] if intent else ""),
+            ).fetchone()
+            if intent is None or intent["owner"] != row["owner"] or not alias:
+                raise Conflict("operation_conflict")
+            current = json.loads(
+                db.execute(
+                    "SELECT body FROM torrent_metadata WHERE record_id=?", (record_id,)
+                ).fetchone()[0]
+            )
+            current.update(metadata)
+            db.execute(
+                "UPDATE torrent_metadata SET body=? WHERE record_id=?",
+                (encode(current), record_id),
+            )
+            result = self._change(
+                db, record_id, temporary=not save, published=True, revision=revision
+            )
+            db.execute("UPDATE source_adds SET stage='done' WHERE token=?", (token,))
+            return result
+
+    def recover_source_adds(self):
+        # Crash before policy commit must not infer temporariness/publication.
+        # Native/reconciled torrents remain as they are; never replay add/unlink.
+        with self._transaction(write=True) as db:
+            db.execute("UPDATE source_adds SET stage='abandoned' WHERE stage='pending'")
+            db.execute(
+                "DELETE FROM source_adds WHERE token IN (SELECT token FROM source_adds "
+                "ORDER BY rowid DESC LIMIT -1 OFFSET 32)"
+            )
+
     def set_viewed(self, record_id, file_id, timecode):
         positive_integer(file_id)
         if (
@@ -447,6 +534,15 @@ class Repository:
     def reset_bindings(self):
         """Explicit disable: revoke all old instance bindings, not daemon stop."""
         with self._transaction(write=True) as db:
+            db.execute("DELETE FROM source_adds")
+            db.execute(
+                "UPDATE removals SET stage='aborted',error='plugin_disabled' "
+                "WHERE stage='prepared'"
+            )
+            db.execute(
+                "UPDATE removals SET stage='manual',error='plugin_disabled' "
+                "WHERE stage IN ('submitting','submitted')"
+            )
             db.execute("DELETE FROM operation_journal")
             db.execute("DELETE FROM torrent_policy")
             db.execute(
@@ -477,6 +573,82 @@ class Repository:
     def require_recovery(self):
         with self._transaction(write=True) as db:
             db.execute("UPDATE lifecycle SET recovery_required=1 WHERE singleton=1")
+
+    def prepare_removal(self, record_id, revision, fifo, plan):
+        body = json.dumps(plan, ensure_ascii=False, allow_nan=False)
+        if len(body.encode()) > 2 * 1024 * 1024:
+            raise ValueError("deletion_plan_limit")
+        with self._transaction(write=True) as db:
+            row = self._record(db, record_id, revision)
+            if not row["is_temporary"] or row["fifo_sequence"] != fifo:
+                raise Conflict("operation_conflict")
+            if db.execute(
+                "SELECT 1 FROM removals WHERE stage NOT IN "
+                "('completed','aborted') LIMIT 1"
+            ).fetchone():
+                raise Conflict("cleanup_pending")
+            operation_id = str(uuid.uuid4())
+            db.execute(
+                "INSERT INTO removals VALUES (?,?,?,?,?,?,'prepared',?,'')",
+                (
+                    operation_id,
+                    record_id,
+                    row["torrent_id"],
+                    row["instance_key"],
+                    fifo,
+                    revision,
+                    body,
+                ),
+            )
+            return operation_id
+
+    def removal_state(self, operation_id, stage, error=""):
+        transitions = {
+            "prepared": {"submitting", "aborted", "manual"},
+            "submitting": {"submitted", "manual", "aborted", "completed"},
+            "submitted": {"completed", "manual"},
+            "manual": {"completed", "aborted"},
+            "completed": set(),
+            "aborted": set(),
+        }
+        if stage not in transitions or not isinstance(error, str) or len(error) > 128:
+            raise ValueError("invalid_removal_state")
+        with self._transaction(write=True) as db:
+            row = db.execute(
+                "SELECT * FROM removals WHERE operation_id=?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise Conflict("operation_conflict")
+            if stage != row["stage"] and stage not in transitions[row["stage"]]:
+                raise Conflict("operation_conflict")
+            db.execute(
+                "UPDATE removals SET stage=?,error=? WHERE operation_id=?",
+                (stage, error, operation_id),
+            )
+            if stage == "completed":
+                db.execute(
+                    "DELETE FROM operation_journal WHERE record_id=?",
+                    (row["record_id"],),
+                )
+                db.execute(
+                    "DELETE FROM torrent_policy WHERE record_id=?", (row["record_id"],)
+                )
+            # Keep a bounded completed audit tail; never discard unresolved work.
+            db.execute(
+                "DELETE FROM removals WHERE operation_id IN (SELECT operation_id "
+                "FROM removals WHERE stage IN ('completed','aborted') "
+                "ORDER BY rowid DESC LIMIT -1 OFFSET 32)"
+            )
+
+    def pending_removals(self):
+        with self._transaction() as db:
+            rows = db.execute(
+                "SELECT * FROM removals WHERE stage NOT IN "
+                "('completed','aborted') ORDER BY fifo LIMIT 129"
+            ).fetchall()
+            if len(rows) > 128:
+                raise RepositoryError("removal_journal_limit")
+            return [dict(row) | {"plan": json.loads(row["plan"])} for row in rows]
 
     def reconcile(self, entries):
         """Bounded authoritative catalogue. Call only after native session load.

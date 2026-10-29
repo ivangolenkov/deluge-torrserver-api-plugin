@@ -8,6 +8,8 @@ from .config import validate
 from .db_worker import DatabaseWorker
 from .path_policy import validate_temporary_paths
 from .repository import Repository, valid_alias
+from .retention import Retention
+from .transfers import TransferRegistry
 
 
 class PolicyService:
@@ -17,6 +19,7 @@ class PolicyService:
         self.rows = {}
         self.ready = False
         self.closed = False
+        self.quiescing = False
         self.error = None
         self.scheduled = None
         self.syncing = False
@@ -27,6 +30,11 @@ class PolicyService:
         self.recovery_token = str(uuid.uuid4())
         self.adapter = adapter_factory(self.changed)
         self.worker = DatabaseWorker(reactor, Repository(self.adapter.database_path()))
+        self.retention = Retention(self)
+        self.transfers = TransferRegistry(
+            reactor, lambda: self.config, self.retention.wake
+        )
+        self.retention_recovered = False
         self.fields = {
             "stream_record_id": lambda tid: self.status_field(tid, "record_id", ""),
             "stream_is_temporary": lambda tid: bool(
@@ -38,6 +46,17 @@ class PolicyService:
                 tid, "fifo_sequence", None
             ),
             "stream_recovery_required": lambda tid: self.recovery_required,
+            "stream_active_requests": lambda tid: self.transfer_status(tid)[
+                "active_stream_requests"
+            ],
+            "stream_cleanup_protected": lambda tid: self.transfer_status(tid)[
+                "cleanup_protected"
+            ],
+            "stream_waiting_pieces": lambda tid: self.streaming.status(
+                self.rows.get(tid, {}).get("record_id", "")
+            )["waiting_pieces"]
+            if hasattr(self, "streaming")
+            else 0,
         }
 
     @defer.inlineCallbacks
@@ -91,9 +110,18 @@ class PolicyService:
                 if epoch == self.epoch and catalogue == self.adapter.catalogue():
                     self.adapter.fresh.clear()
                     self.rows = rows
+                    self.transfers.reconcile(
+                        {row["record_id"] for row in rows.values()}
+                    )
+                    if not self.retention_recovered:
+                        yield self.retention.recover()
+                        self.retention_recovered = True
+                        if epoch != self.epoch or catalogue != self.adapter.catalogue():
+                            continue
                     self.catalogue_stamp = tuple(entry[:4] for entry in catalogue)
                     self.ready = True
                     self.error = None
+                    self.retention.wake()
                     return
                 # Do not spin within one reactor turn when events keep arriving.
                 yield task.deferLater(self.reactor, 0, lambda: None)
@@ -123,7 +151,7 @@ class PolicyService:
                 self.error = "storage_error"
 
     def _record(self, tid, rid, actor, *, write=False):
-        if self.closed or not self.ready:
+        if self.closed or self.quiescing or not self.ready:
             raise RuntimeError(self.error or "operation_conflict")
         if not self.adapter.access(tid, actor, write=write):
             raise ValueError("torrent_not_found")
@@ -146,9 +174,10 @@ class PolicyService:
         try:
             return (
                 not self.closed
+                and not self.quiescing
                 and epoch == self.epoch
                 and catalogue == self.adapter.catalogue()
-                and (plan is None or plan == self.adapter.payload_plan())
+                and (plan is None or plan == self.adapter.deletion_catalogue())
             )
         except (KeyError, ValueError, RuntimeError):
             return False
@@ -174,7 +203,11 @@ class PolicyService:
             published=bool(row["published"]) and not self.recovery_required,
             published_requested=bool(row["published"]),
             recovery_required=self.recovery_required,
+            **self.transfers.status(row["record_id"]),
+            cleanup_reason=self.retention.reason,
         )
+        if hasattr(self, "streaming"):
+            result.update(self.streaming.status(row["record_id"]))
         return result
 
     def mutate(
@@ -210,6 +243,40 @@ class PolicyService:
             tid, self.rows[tid]["record_id"], actor, save_to_db=save_to_db
         )
 
+    @defer.inlineCallbacks
+    def admit_source(self, tid, rid, actor, directory, token, save, metadata):
+        # Private primitive: only a newly created native torrent in the UUID
+        # directory of a durable add intent can use metadata-pending admission.
+        # Cleanup still requires its ordinary complete native-path preflight.
+        yield self.lock.acquire()
+        try:
+            row = self._record(tid, rid, actor, write=True)
+            if self.recovery_required or self.adapter.source_path(tid) != directory:
+                raise RuntimeError("operation_conflict")
+            updated = yield self.worker.call(
+                "commit_source_add", token, rid, row["revision"], save, metadata
+            )
+            current = next(
+                (entry for entry in self.adapter.catalogue() if entry[0] == tid), None
+            )
+            if (
+                self.closed
+                or current is None
+                or current[1] != row["instance_key"]
+                or current[2] != actor[0]
+                or self.adapter.source_path(tid) != directory
+            ):
+                yield self.worker.call(
+                    "set_policy", rid, temporary=False, published=False
+                )
+                self.changed()
+                raise RuntimeError("operation_conflict")
+            self.rows[tid] = updated
+            self.retention.wake()
+            return updated
+        finally:
+            self.lock.release()
+
     def _observe_operation(self, work):
         # RPC disconnect/cancellation must not cancel the coordinator midway
         # through a committed transaction and skip its cache/epoch checks.
@@ -227,12 +294,14 @@ class PolicyService:
     @defer.inlineCallbacks
     def _mutate(self, tid, rid, actor, *, temporary, published, save_to_db):
         row = self._record(tid, rid, actor, write=True)
+        if rid in self.transfers.blocked:
+            raise RuntimeError("operation_conflict")
         if self.recovery_required and (published is True or save_to_db is not None):
             raise RuntimeError("recovery_required")
         epoch, catalogue = self.epoch, self.adapter.catalogue()
         plan = None
         if temporary is True:
-            plan = self.adapter.payload_plan()
+            plan = self.adapter.deletion_catalogue()
             yield self.worker.submit(validate_temporary_paths, tid, plan)
             if not self._still_current(epoch, catalogue, plan):
                 raise ValueError("operation_conflict")
@@ -251,7 +320,7 @@ class PolicyService:
                 "repeat_add", rid, save_to_db=save_to_db, revision=row["revision"]
             )
         if not self._still_current(epoch, catalogue, plan):
-            # No cleanup exists in phase 1. Revoke a stale temporary admission;
+            # Revoke a stale temporary admission;
             # never publish stale worker results to a replacement's cache.
             if temporary is True:
                 yield self.worker.call(
@@ -261,6 +330,7 @@ class PolicyService:
                 self.changed()
             raise ValueError("operation_conflict")
         self.rows[tid] = updated
+        self.retention.wake()
         return self._format(updated)
 
     def confirm_recovery(self, token, actor):
@@ -278,7 +348,7 @@ class PolicyService:
         if not self.ready or token != self.recovery_token:
             raise ValueError("operation_conflict")
         epoch, catalogue = self.epoch, self.adapter.catalogue()
-        plan = self.adapter.payload_plan()
+        plan = self.adapter.deletion_catalogue()
         for tid, row in self.rows.items():
             if row["is_temporary"]:
                 yield self.worker.submit(validate_temporary_paths, tid, plan)
@@ -290,6 +360,7 @@ class PolicyService:
             yield self.worker.call("require_recovery")
             raise ValueError("operation_conflict")
         self.recovery_required = False
+        self.retention.wake()
         return True
 
     def set_config(self, changes, actor):
@@ -312,12 +383,50 @@ class PolicyService:
         if self.closed:
             raise RuntimeError("operation_conflict")
         self.config = target
+        self.retention.wake()
         return dict(target)
+
+    def transfer_status(self, tid):
+        return self.transfers.status(self.rows.get(tid, {}).get("record_id", ""))
+
+    def acquire_transfer(self, tid, rid, actor, kind, cancel=None):
+        if self.operations >= 32 or self.closed:
+            return defer.fail(RuntimeError("operation_conflict"))
+        self.operations += 1
+        return self._observe_operation(
+            self.lock.run(self._acquire_transfer, tid, rid, actor, kind, cancel)
+        )
+
+    def _acquire_transfer(self, tid, rid, actor, kind, cancel):
+        self._record(tid, rid, actor)
+        return self.transfers.acquire(rid, kind, cancel)
+
+    def activate_ticket(self, tid, rid, actor, lease, kind):
+        def activate():
+            self._record(tid, rid, actor)
+            if lease.record_id != rid:
+                raise ValueError("operation_conflict")
+            return self.transfers.activate(lease, kind)
+
+        if self.operations >= 32 or self.closed:
+            return defer.fail(RuntimeError("operation_conflict"))
+        self.operations += 1
+        return self._observe_operation(self.lock.run(activate))
+
+    def resolve_removal(self, operation, action, actor):
+        if self.operations >= 32 or self.closed:
+            return defer.fail(RuntimeError("operation_conflict"))
+        self.operations += 1
+        return self._observe_operation(
+            self.lock.run(self.retention.resolve, operation, action, actor)
+        )
 
     @defer.inlineCallbacks
     def close(self, *, reset):
         self.closed = True
         self.ready = False
+        self.retention.stop()
+        self.transfers.close()
         if self.scheduled is not None and self.scheduled.active():
             self.scheduled.cancel()
         self.adapter.close(self.fields)

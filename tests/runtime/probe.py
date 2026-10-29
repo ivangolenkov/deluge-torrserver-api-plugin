@@ -108,6 +108,9 @@ def integration(reactor, daemon, plugin, root):
         {"download_location": str(dest), "add_paused": False, "auto_managed": False},
     )
     assert torrent_id
+    yield until(
+        reactor, lambda: plugin.policy.ready and torrent_id in plugin.policy.rows
+    )
     torrent = component.get("TorrentManager").torrents[torrent_id]
     handle = torrent.handle
     handle.set_flags(lt.torrent_flags.sequential_download)
@@ -137,11 +140,16 @@ def integration(reactor, daemon, plugin, root):
         )
         assert result[0] == expected_status, result[0]
         assert result[2] == expected
+    rid = plugin.policy.rows[torrent_id]["record_id"]
+    debounce_before_head = plugin.policy.transfers.debounce.get(rid)
     result = yield threads.deferToThread(
         fetch, port, token, torrent_id, "bytes=0-0", "HEAD"
     )
     assert result[0] == 200 and result[2] == b""
     assert result[1]["Content-Length"] == str(len(payload))
+    assert not plugin.policy.transfers.leases
+    debounce_after_head = plugin.policy.transfers.debounce.get(rid)
+    assert debounce_after_head is None or debounce_after_head == debounce_before_head
     result = yield threads.deferToThread(fetch, port, "wrong", torrent_id)
     assert result[0] == 403
 
@@ -180,6 +188,7 @@ def integration(reactor, daemon, plugin, root):
     conn.setblocking(False)
     yield threads.deferToThread(connect_and_send, conn, port, token, torrent_id, start)
     yield until(reactor, lambda: plugin.adapter.pending is not None)
+    assert plugin.policy.transfer_status(torrent_id)["active_stream_requests"] == 1
     ticks = []
     clock = task.LoopingCall(lambda: ticks.append(reactor.seconds()))
     clock.start(0.02)
@@ -189,6 +198,7 @@ def integration(reactor, daemon, plugin, root):
     conn.close()
     yield until(reactor, lambda: plugin.active is None)
     assert plugin.adapter.pending is None
+    assert plugin.policy.transfer_status(torrent_id)["active_stream_requests"] == 0
     assert handle.get_piece_priorities() == baseline_pieces
     resume_after = yield resume_snapshot(reactor, handle)
     assert resume_before == resume_after

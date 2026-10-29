@@ -2,29 +2,46 @@
 
 Проект плагина для просмотра торрентов в Lampa и Num через Deluge. Обычная загрузка и раздача остаются в Deluge; целевой продукт добавит совместимость с TorrServer, приоритет нужных частей файла и управление временными торрентами.
 
-**Состояние проекта:** фазы 0 и 1 завершены. Работают core/web-каркас, SQLite, политика хранения через авторизованный RPC, диагностика и Linux runtime-тесты. Это ещё **не TorrServer-сервер**: Lampa/Num API, автоочистка FIFO, кнопки управления торрентами в Web UI и пользовательские downloads появятся в следующих фазах. Workflow проверок подготовлен; hosted GitHub Actions run и релиза пока нет.
+**Состояние проекта:** фазы 0–2 завершены, фаза 3 в работе. Реализованы core/web,
+SQLite, FIFO и встроенные TorrServer HTTP/Range/preload с несколькими читателями.
+Полная клиентская приёмка Lampa/Num ещё не выполнена. Кнопки управления торрентами
+в Web UI и пользовательские downloads — будущая фаза 4. Hosted run и релиза нет.
 
 При enable Core открывает `<config deluged>/stream.sqlite`: WAL, последовательные
 миграции, политика временности/публикации, монотонный FIFO-ключ, hash aliases,
 metadata/viewed и настройки. SQLite и проверки файловых путей выполняются
 ограниченным однопоточным worker вне reactor. Смена политики доступна владельцу
 или администратору; shared-доступ не даёт права изменения. Обычные торренты
-регистрируются постоянными и неопубликованными. Плагин **не удаляет payload**:
-автоочистка не включена даже при превышении max_temporary_torrents.
+регистрируются постоянными и неопубликованными. **Перевод во временный разрешает
+автоматическое удаление торрента вместе с данными при превышении лимита.**
 Подробности — в [отчёте фазы 1](tasks/implementation/phase1-report.md).
+
+В фазе 2 согласованы штатные гарантии удаления Deluge/libtorrent, без собственного
+unlink и замораживания внешних rename/move. [Отчёт](tasks/implementation/phase2-report.md).
+
+В фазе 3 согласовано: плагин управляет своими deadlines, но не восстанавливает
+числовые native piece priorities и не ведёт для этого recovery journal.
+Остаточные изменения после просмотра/crash допустимы. File priorities, skip,
+first/last, pause и очередь плагин не меняет; payload/recheck остаются Deluge.
+**Готовые проверенные данные доступны на паузе и у skipped-файлов.** Если нужных
+данных нет, плагин не снимает паузу и не включает файл. [Отчёт](tasks/implementation/phase3-report.md).
 
 Один `.egg` теперь содержит core и web entry points и браузерный script. Web-часть
 выполняет авторизованную проверку версии core и добавляет диагностическую страницу
 Stream в настройки Deluge; политика хранения из неё пока не меняется.
 Процессы deluged и deluge-web не требуют общего профиля или каталога downloads.
 
-Прототип читает pieces существующей сессии Deluge через AlertManager и отдаёт HTTP Range на loopback-порту с эфемерной авторизацией. Он учитывает паузу сессии, очередь и изменение выбора файлов во время ожидания. В нём нет QoS: снятие deadline не восстанавливает исходный piece priority. Отдельные эксперименты проверяют SIGKILL/recovery, mapping v1/v2/hybrid, identity для delete/re-add и ledger, сохраняющий recovery coverage после завершения операции. Гонка потери coverage при SQLite commit проверена; переносимость identity, backup/GC и live streaming controller ещё не готовы. Recovery не включён в плагин. Подробности — в [архитектуре](docs/architecture.md) и [отчёте фазы 0](tasks/implementation/phase0-report.md).
+Отдельный исследовательский reader фазы 0 сохранён на loopback-порту с эфемерной
+авторизацией. Это не публичный download endpoint; он не работает одновременно
+с новым streaming-controller, чтобы не обходить общий бюджет. Исследовательские
+QoS/witness/ledger остаются тестами и не подключены к продуктовой recovery.
+[Архитектура](docs/architecture.md), [история фазы 0](tasks/implementation/phase0-report.md).
 
 Зафиксирован [HTTP-контракт эмуляции TorrServer из torrent-stream-hub](docs/torrserver-contract.md):
 маршруты, schemas и тестовые примеры без переноса движка или Web GUI. Отдельно
 получены [35 реальных HTTP-записей TorrServer и модуля Lampa](tests/fixtures/torrserver-reference/README.md).
 Это частичная проверка модуля клиента в Chromium, не воспроизведение видео,
-не тест Num и не реализованный API плагина.
+не тест Num и не приёмка нового API плагина.
 По согласованию с пользователем этого достаточно для клиентской части фазы 0.
 Num и полноценные UI/playback-сценарии отложены до последующей приёмки;
 при необходимости пользователь выполнит их позднее.
@@ -188,6 +205,135 @@ restart проверены на настоящем daemon через RPC. Backup
 остаётся непроверенной процедурой; нельзя независимо восстанавливать старую
 SQLite поверх другого native-каталога Deluge и считать это доказанной сверкой.
 
+## HTTP и streaming: тестовый кандидат фазы 3
+
+Listener по умолчанию `0.0.0.0:8090`, но запросы данных закрыты до выбора
+действительного `torrent_owner`. Он предназначен **только для доверенной LAN**:
+CORS `*` и отсутствие пароля TorrServer не делают порт безопасным для Интернета.
+Контекст видит только доступные ему опубликованные торренты; обычные native
+торренты не публикуются автоматически. Управляющие RPC по-прежнему авторизованы
+Deluge; HTTP `/settings set/def` — compatibility no-op, а не обход RPC.
+
+В авторизованном RPC-клиенте администратора, например для локального стенда:
+
+```python
+client.stream.set_config(1, {
+    "torrent_owner": "localclient",
+    "bind_host": "127.0.0.1",
+    "bind_port": 8090,
+    "public_base_url": "http://127.0.0.1:8090",
+})
+client.stream.get_diagnostics(1)
+```
+
+`localclient` — стандартная учётная запись Deluge; для другого владельца выберите
+реальное имя из его auth-контекста. Для внешнего плеера замените bind на доступный
+LAN-интерфейс и `public_base_url` на **адрес daemon, доступный плееру**, не localhost
+deluge-web. За reverse proxy укажите внешний URL с учётом prefix. M3U строится
+только из `public_base_url`, не из непроверенного Host. Без него прямой stream
+работает, но playlist возвращает `public_url_required`. Подключение в Lampa/Num
+должно использовать корень этого HTTP listener, а не Web UI/RPC порт Deluge.
+Это порядок настройки кандидата, не заявление о пройденной приёмке клиентов.
+
+Работают `/echo`, `/torrents add/get/list/set/rem/drop/wipe`, multipart
+`/torrent/upload`, `/playlist`, `/stream[/name]`, `/play/{hash}/{id}`, `/cache`,
+`/settings` и `/viewed set/list/rem`. `echo` эмулирует MatriX.147.1; настоящий
+номер плагина доступен через RPC. `stat` числовой, preload отвечает пустым 200,
+viewed сохраняет timecode и возвращает JSON; пустой viewed list — `[]`, не `null`.
+File id **1-based**, без pad-файлов, включая пустые файлы. Для metadata-pending
+magnet add возвращает явное ожидание и пустой file list, не выдуманные пути.
+
+Новые add без `save_to_db` временные и опубликованные; upload по умолчанию
+постоянный. Каждый новый экземпляр получает UUID-подкаталог download_root
+(default: `deluge-stream` внутри native download location). Existing add не
+перемещает данные, не дублирует native торрент и не понижает постоянство.
+`rem` сохраняет payload и отклоняется при защите передачи/debounce. `drop/wipe`
+ничего не удаляют. Пересечения SQLite и native add не являются одной транзакцией:
+незавершённый add intent после crash не переигрывается; при неполном commit native
+торрент может остаться постоянным/неопубликованным, пустой UUID-каталог — остаться.
+Уже принятые изменения не откатываются отключением HTTP-клиента.
+
+Источники: v1 magnet/hex/base32 infohash, HTTP(S) `.torrent`, ограниченные redirects
+и текстовый magnet. V1/v2/hybrid `.torrent` поддержаны. **V2-only btmh magnet
+не поддержан Deluge 2.2.0**, возвращается явная ошибка, второй движок не запускается.
+HTTP sources могут обращаться к LAN; поэтому не давайте доступ к порту недоверенным
+клиентам. Собственные HTTP access logs не пишут query/источники/токены; native
+DEBUG-логи Deluge следует отдельно проверять и редактировать перед публикацией.
+
+Reader ждёт native `have_piece`, читает через `read_piece_alert` и проверяет размер
+и экземпляр. Один native read обслуживает несколько ожидающих клиентов. Смена
+позиции внутри одного GET передвигает агрегированное окно; остановка клиента не
+снимает deadlines другого. Preload — disk-backed задача с абсолютным timeout,
+дубликаты того же файла объединяются; чтение payload в RAM для preload не нужно.
+HEAD/stat/cache/settings/playlist не создают playback и не продлевают debounce.
+«Стриминг» — наблюдаемые GET-запросы, не точное число людей и не фоновая загрузка.
+
+Default окно и preload — 20 MiB; playback cap 8, preload cap 2, payload budget
+64 MiB. Есть дополнительные hard caps: 128 sessions, 16 native read jobs,
+4096 агрегированных missing-piece deadlines, 10000 файлов и 2 MiB имён metadata,
+32 HTTP connections/requests, 16 MiB входной `.torrent`, 32 MiB общей входной
+памяти, 8 multipart parts, 8 MiB control response, 2 HTTP source fetches и 4 add.
+Слишком большой piece/window отклоняется с `buffer_limit`/`deadline_limit`;
+увеличение логического окна не означает выделение RAM под весь фильм. Бюджет
+пессимистично учитывает alert-copy, удержанный chunk и ограниченную HTTP-очередь;
+он не ограничивает RSS всего Deluge, native cache, metadata или kernel buffers.
+
+`get_diagnostics(1)` показывает `http_error` (включая `bind_failed`) и streaming
+counters, reservations, ожидания, deadlines, last error и последнюю измеренную
+reactor lag. Web JSON отдаёт проверенное подмножество этих полей. `get_status`
+и status fields содержат activity/protection/waiting pieces. Полный UI — фаза 4.
+Смена bind/порта/контекста закрывает старые соединения; ошибка bind не ломает
+daemon. Повторный set_config позволяет повторить bind после устранения конфликта.
+
+Тесты подтверждают HTTP-байты локального fixture, не декодирование настоящего видео.
+Клиентские сценарии — [чеклист](docs/client-acceptance.md).
+
+## FIFO, передачи и незавершённое удаление
+
+`max_temporary_torrents` по умолчанию **3**. При превышении выбирается только
+самый старый временный торрент по сохраняемому FIFO-ключу. Постоянные в счётчик
+не входят. Повторный временный статус не двигает FIFO; постоянный → временный
+получает новую позицию. Смена статуса сама по себе не перемещает файлы и не
+меняет pause/priorities.
+
+Playback, preload, file, ZIP, ticket reservation и debounce защищают старейшего:
+очередь ждёт, а не удаляет более новый торрент вместо него. Допускается временное
+превышение лимита. Фоновая загрузка, сидирование, HEAD и stats защитой не являются.
+HTTP playback/preload уже используют этот API; file/ZIP download handlers
+появятся в фазе 4 и пока проверены через internal leases. Счётчик
+`active_stream_requests` — число playback-запросов, не людей.
+
+После освобождения защиты очистка повторяется. Ошибки preflight повторяются
+не более трёх попыток за цикл, с интервалом `cleanup_retry_seconds` (не меньше 5 с);
+новое событие политики/каталога/освобождения может начать новый цикл. Нехватка
+места, размер файлов и возраст сами по себе не вызывают удаления.
+
+Удаление выполняет Deluge с данными. `True`/TorrentRemovedEvent не равно
+завершению: плагин ждёт matching native deletion alert (до 30 с).
+Известные shared paths, symlinks и traversal блокируют опасную операцию, но
+плагин не даёт дополнительных гарантий против параллельных native rename/move,
+повторного add и внешних изменений диска сверх гарантий самого Deluge.
+Не изменяйте размещение и не используйте общие payload-пути во время удаления.
+
+Ошибка/timeout оставляет journal в `manual` и останавливает дальнейшую очередь.
+После restart `prepared` отменяется; `submitting/submitted` проверяется только
+на отсутствие native торрента и сохранённых файлов. Неоднозначность остаётся
+ручной: плагин **никогда не удаляет остатки по сохранённым путям самостоятельно**.
+Администратор может вызвать RPC:
+
+```python
+client.stream.get_cleanup(1)
+client.stream.resolve_removal(1, operation_id, "verify")
+client.stream.resolve_removal(1, operation_id, "acknowledge")
+```
+
+`verify` закрывает журнал только если native торрент и плановые файлы отсутствуют.
+`acknowledge` явно признаёт ручное разрешение и снимает блокировку журнала,
+не удаляя файлов; администратор сам решает судьбу остатков. Если старый торрент
+ещё существует и остаётся временным, очистка после снятия блокировки может
+выбрать его снова. Это отдельное действие от подтверждения каталога после crash.
+Ручное удаление через обычный Deluge не подчиняется защите leases плагина.
+
 ## Политика, перезапуск и подтверждение после аварии
 
 | Действие | Результат |
@@ -239,11 +385,10 @@ RPC не передаёт payload и не требует пароля Deluge в 
 отдельно не автоматизирована.
 
 Полная схема настроек — [deluge_stream/config.py](deluge_stream/config.py).
-Сейчас активно сохраняются и применяются policy-настройки. `torrent_owner`
-проверяется по аккаунтам daemon; пока он пуст, будущий listener не имеет контекста
-владельца. HTTP/window/download-параметры подготовлены для фаз 3–4: они **ещё не
-включают TorrServer, downloads или продуктовый listener**. Исследовательский
-loopback-probe по-прежнему отдельный, с эфемерной admin-авторизацией.
+Применяются policy-, HTTP- и streaming-настройки. `torrent_owner` проверяется по
+аккаунтам daemon; пока он пуст, HTTP-запросы данных отклоняются без контекста
+владельца. Download/ZIP-параметры относятся к будущей фазе 4. Исследовательский
+loopback-probe отдельный, с эфемерной admin-авторизацией.
 
 Ошибочная настройка отклоняется целиком. Неизвестная/повреждённая SQLite выключает
 функции плагина, но не заменяется пустой БД и не останавливает Deluge. Проверка
@@ -259,4 +404,4 @@ native file entries в проверке путей, 32 DB-работы/упра�
 - [План и статус фаз](tasks/README.md) — этапы 0–5 и обязательный Makefile/CI/CD.
 - [Отчёты](tasks/implementation/README.md) — что выполнено и чем проверено.
 
-Завершены [фаза 0](tasks/phase0-feasibility-and-tooling.md) и [фаза 1](tasks/phase1-core-persistence-and-ci.md). Следующая — фаза 2: FIFO-очистка и защита передач; она ещё не начата. Непроверенные продуктовые возможности не считаются готовыми на основании исследовательских результатов.
+Завершены [фаза 0](tasks/phase0-feasibility-and-tooling.md), [фаза 1](tasks/phase1-core-persistence-and-ci.md) и [фаза 2](tasks/phase2-retention-and-transfer-lifecycle.md). [Фаза 3](tasks/phase3-torrserver-and-streaming.md) в работе: HTTP/streaming реализованы, приёмка Lampa/Num не выполнена. Фаза 4 не начата.

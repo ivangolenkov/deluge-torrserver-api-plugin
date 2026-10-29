@@ -55,10 +55,53 @@ class WebUI(WebPluginBase):
                 storage_active=info.get("storage_active") is True,
                 torrserver_active=info.get("torrserver_active") is True,
                 recovery_required=info.get("recovery_required") is True,
+                http_error="bind_failed"
+                if info.get("http_error") == "bind_failed"
+                else None,
+                streaming=self._streaming(info.get("streaming")),
             )
 
         d.addCallbacks(received, lambda _: self._status(False, "core_unavailable"))
         return d
+
+    @staticmethod
+    def _streaming(value):
+        if not isinstance(value, dict):
+            return {}
+        result = {
+            key: value[key]
+            for key in (
+                "sessions",
+                "piece_jobs",
+                "payload_bytes_reserved",
+                "deadlines",
+                "preloads",
+            )
+            if type(value.get(key)) is int and 0 <= value[key] <= 2**40
+        }
+        error = value.get("last_error", "")
+        known = {
+            "",
+            "operation_conflict",
+            "torrent_not_found",
+            "metadata_pending",
+            "file_skipped",
+            "session_paused",
+            "torrent_paused",
+            "torrent_queued",
+            "disk_full",
+            "storage_error",
+            "deadline_limit",
+            "transfer_limit",
+            "buffer_limit",
+            "piece_read_error",
+            "stream_error",
+            "cancel_error",
+        }
+        result["last_error"] = (
+            error if isinstance(error, str) and error in known else "stream_error"
+        )
+        return result
 
     @staticmethod
     def _status(available, reason, **capabilities):

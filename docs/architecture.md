@@ -1,8 +1,37 @@
-# Архитектура: исследования фазы 0 и каркас фазы 1
+# Архитектура: продуктовый backend и сохранённые исследования
 
-Есть core/web/policy-каркас фазы 1, но не полный TorrServer-продукт. Разделы о
-reader/QoS/ZIP ниже сохраняют границы исследований фазы 0; продуктовая интеграция
-storage описана отдельно в конце. Контракт — [SPEC.md](../SPEC.md).
+Фазы 0–2 завершены; HTTP/reader/QoS фазы 3 реализованы, но ещё не прошли полную
+приёмку Lampa/Num. Контракт — [SPEC.md](../SPEC.md).
+
+## Продуктовая интеграция фазы 3
+
+`core.py` запускает `TorrServer` внутри deluged. `torrserver.py` ограничивает
+соединения, входные тела, JSON/multipart и HTTP producer; `torrents.py` проверяет
+owner/publication и строит DTO/playlist/viewed. `sources.py` вне reactor разбирает
+metadata и готовит UUID-каталоги; HTTP source fetch имеет caps/timeouts/redirect
+limit. SQLite schema 6 хранит source-add intents, без автоматического replay
+native add после crash. Внешние file ids — 1-based, без pad-файлов.
+
+`Streams` в `streaming.py` объединяет native reads и минимальные deadlines по
+позициям читателей. `stream_adapter.py` изолирует handle/AlertManager/readiness.
+Playback/preload проходят через policy lock и leases фазы 2. Verified pieces
+читаются при pause/skip; отсутствующие не приводят к автоматическому resume.
+Preload disk-backed и не создаёт playback. Свои deadlines снимаются, но native
+piece priorities не восстанавливаются: это согласованное упрощение, а не блокер.
+File priorities/skip/first-last/pause/queue не изменяются.
+
+Budget reader учитывает две копии piece и HTTP overhead на ожидающего клиента.
+После cancel выданный native read сохраняет job slot и reservation до matching
+alert; orphan payload не копируется. Backpressure ограничивает выдачу producer.
+Close обнуляет runtime jobs; restart/crash не переигрывает QoS. Research probe и
+product payload взаимоисключены. Пределы и диагностика описаны в [README](../README.md),
+проверки и ограничения — в [отчёте фазы 3](../tasks/implementation/phase3-report.md).
+
+## Исторические исследования фазы 0
+
+Ниже описаны отдельные probes, не текущий продуктовый controller. Их witness,
+ledger и recovery-кандидаты сохранены для воспроизводимости, но не подключены
+к product QoS и не являются требованиями к нему. ZIP/download UI — будущая фаза 4.
 
 ## Проверенный путь чтения
 
@@ -17,7 +46,7 @@ Listener находится внутри core-плагина, слушает т�
 эфемерный ключ. HTTP требует `Authorization: Bearer …`; access log отключён,
 ключ не входит в URL. Это **не** TorrServer listener и **не** download ticket.
 Исследовательский endpoint использует внутренний **0-based** индекс файла.
-Внешний TorrServer mapping **1-based** здесь ещё не реализован.
+В этом исследовательском endpoint внешнего TorrServer mapping нет.
 
 Перед read_piece проверяется have_piece, а не длина файла на диске. Ожидание —
 reactor timer с timeout 15 секунд. Допущен один GET, один ожидаемый piece и один
@@ -65,7 +94,7 @@ callback, а не утверждение об отложенной штатно�
 возвращается **явно**, только как cleanup контролируемого эксперимента.
 Это не алгоритм восстановления последних пользовательских решений.
 
-**Решение на текущем шаге:** HTTP-прототип вообще не меняет deadlines или
+**Решение исследовательского прототипа:** HTTP-прототип вообще не меняет deadlines или
 piece/file priorities; ожидает обычную загрузку Deluge. Проверка QoS вынесена в
 отдельный эксперимент, который явно сообщает `qos_product_ready: false`.
 Успешный make check означает воспроизведение этого риска, а не его устранение.
@@ -262,13 +291,25 @@ crash dirty marker сохраняет требование подтвержде�
 политики не означает автоматическое разрешение на replay старого QoS-журнала.
 [Итоговый отчёт](../tasks/implementation/phase1-report.md).
 
+## Фаза 2: FIFO и единый допуск
+
+`TransferRegistry` управляет leases/refcount, tickets, idle expiry и playback
+debounce по record UUID. `PolicyService.lock` сериализует допуск, mutation и
+начало cleanup. `Retention` выбирает только старейшего при превышении количества,
+фиксирует intent в journal schema 5, вызывает native Deluge remove_data=True и
+ждёт matching-handle deletion alert вне policy lock. Ошибка/timeout оставляет
+manual operation и останавливает FIFO. Startup только проверяет отсутствие,
+не удаляя orphan paths. Согласованы штатные гарантии Deluge, без stronger barrier
+от queued native rename/move/re-add. [Отчёт фазы 2](../tasks/implementation/phase2-report.md).
+
 ## Пока не реализовано
 
 Есть начальный web entry point с versioned core handshake и диагностической
 страницей. JSON/daemon RPC авторизованы штатным Deluge, бинарные данные через
 них не передаются. Это не управление торрентами или настройки streaming.
 
-Автоочистка FIFO, TorrServer API, полный Web UI, downloads/tickets, streaming
-QoS и recovery. Исследовательский журнал не является реализацией persistence
-фазы 1. Для v2/hybrid ещё не проверены реальные клиенты
-и передача payload по всем вариантам; metadata matrix не заменяет playback.
+Полный Web UI и HTTP downloads/tickets/ZIP остаются фазой 4. TorrServer API и
+streaming QoS реализованы, но настоящие Lampa/Num ещё не проверены. Передача
+v1/v2/hybrid payload подтверждена binary fixtures, не decoder/playback видео.
+Собственный QoS recovery journal не планируется по согласованному упрощению.
+Исследовательский журнал не является реализацией persistence фазы 1.

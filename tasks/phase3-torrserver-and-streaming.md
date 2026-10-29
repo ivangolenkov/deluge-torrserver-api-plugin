@@ -1,6 +1,9 @@
 # Фаза 3: TorrServer API и streaming QoS
 
-Статус: **Не начата**.
+Статус: **В работе**. QoS-блокер снят уточнением пользователя: residual native
+piece priorities допустимы, собственный recovery journal/нормализация не нужны.
+Плагин управляет своими deadlines, не file priorities/skip/pause/queue. Готовые
+данные доступны на паузе и у skipped-файлов. [Отчёт](implementation/phase3-report.md).
 
 Предпосылка: завершена [фаза 2](phase2-retention-and-transfer-lifecycle.md), прочитан её отчёт. Основание: [SPEC.md](../SPEC.md), §§5–7, 10–12, 14. Отчёт: tasks/implementation/phase3-report.md.
 
@@ -14,7 +17,7 @@
 
 - Реализовать маршруты и DTO из ТЗ по fixtures фазы 0: add/list/get/rem, file list, preload/stat/play, cache, settings и viewed set/list/rem с persistence. Различать source-derived TSH schemas и реальные MatriX.147.1/Lampa записи; stat эталона числовой, preload возвращает пустой 200. Не копировать null/пустые ответы и cache placeholders без проверки целевых клиентов.
 - Сохранить правила публикации, владельца, постоянства и повторного add; не раскрывать через TorrServer произвольные торренты daemon.
-- Использовать effective publication PolicyService, а не только сохранённый published_requested: после crash публикация заблокирована до admin confirmation. Не трактовать подтверждение policy как автоматическое доказательство identity для replay старых QoS overrides.
+- Использовать effective publication PolicyService, а не только сохранённый published_requested: после crash публикация заблокирована до admin confirmation. Старые QoS overrides не переигрываются; runtime-сессии обнуляются.
 - Реализовать точную нумерацию файлов, hash aliases и обработку ещё не полученных metadata. Не включать pad-файлы как пользовательские.
 - Соблюсти различие rem, drop/wipe и автоматического удаления с данными согласно ТЗ.
 - Поддержать CORS *, OPTIONS, GET/HEAD и все требуемые single Range. Ошибки, Content-Length, Content-Range и выдаваемые байты должны соответствовать контракту.
@@ -33,7 +36,7 @@
 - При seek оперативно обновлять требуемую область, удалять ненужные overrides и сохранять debounce-защиту между связанными запросами.
 - Разделять playback, preload и обычные downloads; считать наблюдаемую HTTP-активность, не обещать точного числа зрителей.
 - Проверить взаимодействие с file priorities, first/last, pause и очередью. Последнее пользовательское решение имеет приоритет над восстановлением старого snapshot.
-- Реализовать проверенное восстановление после disable, restart и resume-data; временные streaming overrides не становятся постоянными.
+- Проверить снятие известных deadlines после disable и сброс runtime-сессий после restart/crash. По согласованному уточнению остаточные native piece priorities допустимы; собственное восстановление vector и QoS journal не реализуются.
 - Не менять глобальные настройки Deluge, влияющие на чужие торренты, ради одной сессии.
 
 ### 4. Наблюдаемость и документация
@@ -60,6 +63,6 @@
 - [ ] Пользовательские priorities/pause/queue сохраняются, включая disable и crash/resume.
 - [ ] Backpressure, лимиты буферов и неблокирующее выполнение подтверждены.
 - [ ] Наблюдаемое состояние и диагностика доступны web-части через RPC/status fields.
-- [ ] make check проходит; новые автоматические проверки включены в CI.
+- [x] make check проходит; новые автоматические проверки включены в CI.
 - [ ] README описывает проверенное подключение и ограничения streaming.
-- [ ] Отчёт и индекс фаз обновлены; частичные и ручные проверки явно обозначены.
+- [x] Отчёт и индекс фаз обновлены; частичные и ручные проверки явно обозначены.

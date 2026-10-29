@@ -30,6 +30,8 @@ class Adapter:
     def payload_plan(self):
         return ((TID, str(self.root), ("movie",)),)
 
+    deletion_catalogue = payload_plan
+
     def access(self, tid, actor, *, write=False):
         return tid == TID and (actor[1] or actor[0] == "alice")
 
