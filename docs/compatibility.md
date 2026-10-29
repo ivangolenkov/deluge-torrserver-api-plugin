@@ -26,6 +26,20 @@ Linux x86_64 проверяется отдельным образом под э�
 физическом x86_64/NAS. Точный итог прогонов — в
 [отчёте фазы 0](../tasks/implementation/phase0-report.md).
 
+В продолжении фазы 1 на том же runtime проверены и отдельные deluged/deluge-web
+2.2.0: один egg установлен в оба изолированных профиля, web script получен через
+HTTP, авторизованный handshake и 20 enable/disable прошли на ARM64 и эмулируемом
+x86_64. Это начальная web-диагностика, не полный UI или клиентская playback-приёмка.
+Локальный `make ci-check` прошёл; hosted GitHub run пока не выполнен. Подробности —
+в [отчёте фазы 1](../tasks/implementation/phase1-report.md).
+
+Итог фазы 1: SQLite подключена к Core, 132 unit и 70 persistence прошли на обеих
+архитектурах, как и реальные policy RPC, owner/admin/shared, native restart,
+SIGKILL и confirmation gate. Явное отключение плагина сбрасывает instance bindings;
+штатный restart сохраняет их. Hardlinks для политики не требуются. Runtime gate
+не допускает другой Deluge/libtorrent/Twisted, не-Linux и Python вне 3.11;
+SQLite требуется >=3.40.1. Матрица фактически проверенного окружения остаётся выше.
+
 ## Воспроизведение из чистой копии
 
 Требуется Docker с Linux containers и make на хосте для `make help`.

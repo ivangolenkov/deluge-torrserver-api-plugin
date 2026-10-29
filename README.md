@@ -2,7 +2,21 @@
 
 Проект плагина для просмотра торрентов в Lampa и Num через Deluge. Обычная загрузка и раздача остаются в Deluge; целевой продукт добавит совместимость с TorrServer, приоритет нужных частей файла и управление временными торрентами.
 
-**Состояние проекта:** исследовательская фаза 0 завершена. Есть устанавливаемый core-прототип, Makefile и Linux runtime-тесты. Это ещё **не TorrServer-сервер**: Lampa/Num API, FIFO, Web UI и пользовательские downloads не реализованы. Релиза и GitHub Actions пока нет; фаза 1 не начата.
+**Состояние проекта:** фазы 0 и 1 завершены. Работают core/web-каркас, SQLite, политика хранения через авторизованный RPC, диагностика и Linux runtime-тесты. Это ещё **не TorrServer-сервер**: Lampa/Num API, автоочистка FIFO, кнопки управления торрентами в Web UI и пользовательские downloads появятся в следующих фазах. Workflow проверок подготовлен; hosted GitHub Actions run и релиза пока нет.
+
+При enable Core открывает `<config deluged>/stream.sqlite`: WAL, последовательные
+миграции, политика временности/публикации, монотонный FIFO-ключ, hash aliases,
+metadata/viewed и настройки. SQLite и проверки файловых путей выполняются
+ограниченным однопоточным worker вне reactor. Смена политики доступна владельцу
+или администратору; shared-доступ не даёт права изменения. Обычные торренты
+регистрируются постоянными и неопубликованными. Плагин **не удаляет payload**:
+автоочистка не включена даже при превышении max_temporary_torrents.
+Подробности — в [отчёте фазы 1](tasks/implementation/phase1-report.md).
+
+Один `.egg` теперь содержит core и web entry points и браузерный script. Web-часть
+выполняет авторизованную проверку версии core и добавляет диагностическую страницу
+Stream в настройки Deluge; политика хранения из неё пока не меняется.
+Процессы deluged и deluge-web не требуют общего профиля или каталога downloads.
 
 Прототип читает pieces существующей сессии Deluge через AlertManager и отдаёт HTTP Range на loopback-порту с эфемерной авторизацией. Он учитывает паузу сессии, очередь и изменение выбора файлов во время ожидания. В нём нет QoS: снятие deadline не восстанавливает исходный piece priority. Отдельные эксперименты проверяют SIGKILL/recovery, mapping v1/v2/hybrid, identity для delete/re-add и ledger, сохраняющий recovery coverage после завершения операции. Гонка потери coverage при SQLite commit проверена; переносимость identity, backup/GC и live streaming controller ещё не готовы. Recovery не включён в плагин. Подробности — в [архитектуре](docs/architecture.md) и [отчёте фазы 0](tasks/implementation/phase0-report.md).
 
@@ -83,7 +97,7 @@ resume-data/SIGKILL-recovery, identity/worker-result guards, очередь/па
 | make lint / make format-check | Проверка кода и форматирования | Реализовано |
 | make check-docs | Markdown parser и локальные ссылки | Реализовано |
 | make test-unit | Range, layout/file policy, identity/worker guards, контрактные artifacts, ссылки и clean | Реализовано |
-| make test-persistence | Настоящая временная SQLite: recovery coverage, epochs, rollback и budgets | Реализовано |
+| make test-persistence | Настоящая временная SQLite: policy/FIFO/aliases/viewed, миграции, worker/cancel/lock и исследовательский recovery ledger | Реализовано |
 | make test-integration | Deluge/libtorrent, seed, HTTP и ZIP64-эксперимент | Реализовано |
 | make test | Unit + integration | Реализовано |
 | make build | Исследовательский egg в dist/ | Реализовано |
@@ -93,6 +107,7 @@ resume-data/SIGKILL-recovery, identity/worker-result guards, очередь/па
 | make docker-build / make docker-up / make docker-down | Сборка и запуск тестового Docker-окружения | Фаза 5 |
 | make release-check | Локальная подготовка и проверка релизного комплекта без публикации | Фаза 5 |
 | make clean | Только стандартные build/dist и tool caches проекта | Реализовано |
+| make ci-check | Docker build закреплённого runtime и make check; логи в build/ci | Реализовано; по умолчанию linux/amd64 |
 
 Строки фаз 4–5 остаются планом, соответствующих целей пока нет.
 Успех make check подтверждает текущие эксперименты, но не полную продуктовую приёмку.
@@ -113,11 +128,129 @@ resume-data/SIGKILL-recovery, identity/worker-result guards, очередь/па
 
 ## Автоматизация и релизы
 
-В фазе 1 появится CI для PR/push: проверки, сборка и smoke-установка через тот же Makefile. Во время разработки можно будет получать тестовые artifacts соответствующего workflow run.
+Добавлен [.github/workflows/checks.yml](.github/workflows/checks.yml): PR,
+push в `main`, ручной `workflow_dispatch` и reusable `workflow_call`. Job
+`Linux x86_64 / Python 3.11` вызывает **make ci-check**: собирает закреплённый
+Linux runtime и выполняет внутри него make check без внешней сети. Smoke
+устанавливает egg в одноразовые профили и запускает настоящие deluged/deluge-web
+в разных процессах, проверяя авторизацию и 20 enable/disable.
+
+В GitHub Actions → Checks можно вручную выбрать Run workflow. После run тестовый
+artifact `stream-linux-x86_64` содержит egg (если сборка дошла до него) и логи
+`build/ci/image.log`, `build/ci/check.log`; срок хранения — 14 дней. Загрузка логов
+выполняется и при неуспехе. Имена обязательных branch checks настраиваются в
+репозитории, workflow сам не меняет branch protection. Hosted run пока **не
+выполнялся**: файл workflow и локальные проверки не заменяют GitHub run.
+
+Локальный эквивалент требует Docker и make, но не локального Deluge:
+
+```sh
+make ci-check
+# На ARM64-хосте без эмуляции:
+make ci-check CI_PLATFORM=linux/arm64 CI_IMAGE=deluge-stream-check:arm64
+```
+
+Сеть нужна при подготовке Docker-образа, но не при выполнении тестов. Hosted CI
+пока автоматизирует только Linux x86_64. ARM64 проверяется локально; hosted
+ARM64-матрица и поставка образов остаются задачей фазы 5. Actions закреплены SHA,
+permissions только contents:read, публикационных secrets нет. Это тестовые
+artifacts, не GitHub Releases.
 
 В фазе 5 появится отдельный release workflow. Версионный тег будет запускать обязательные проверки, сборку и автоматическую публикацию проверенных plugin artifacts в GitHub Releases с checksum и таблицей совместимости. Обычный PR не публикует релиз; ручная проверка pipeline должна поддерживать режим без публикации.
 
 Docker Compose и инструкции работы с постоянными volumes также запланированы на фазу 5. `tools/runtime.Dockerfile` — только изолированный стенд фазы 0, не продуктовый Docker-образ. Публичных релизных образов и artifacts пока нет.
+
+## Тестовая установка core/web
+
+Для подтверждённого Python 3.11 после `make build` используется
+`dist/Stream-0.0.1-py3.11.egg`. Установочный artifact проверяется через `make smoke`,
+а не импорт исходников. Установка вне тестов — явное действие пользователя:
+
+1. Добавьте egg через штатную страницу Plugins Deluge или, остановив процессы,
+   положите его в `plugins/` каталога конфигурации **deluged**.
+2. Если deluge-web использует отдельный профиль/машину, положите **тот же egg** в
+   его собственный `plugins/`. Общий диск с daemon не требуется.
+3. Запустите процессы, включите Stream в Plugins на daemon и подключите Web UI
+   к нему. В Preferences появится страница Stream с диагностикой core. При
+   обновлении web-файлов перезагрузите страницу браузера.
+4. Обе части должны иметь одинаковую версию plugin и API. Диагностика не
+   подтверждает TorrServer-совместимость: HTTP API плееров ещё не реализован.
+5. Для отключения снимите Stream в Plugins daemon; web-часть снимается штатным
+   событием. **Явное отключение сбрасывает временность, публикацию и экземплярные
+   metadata/viewed.** Торренты и их файлы не удаляются, настройки сохраняются.
+   Для удаления egg остановите
+   соответствующие процессы и удалите только этот artifact из plugins/.
+
+Автоматически проверены отдельные одноразовые Linux-профили и загрузка script
+через настоящий deluge-web. Пользовательский браузерный UI, установка в
+существующий NAS-профиль пока не приняты. Смена временности/публикации, права и
+restart проверены на настоящем daemon через RPC. Backup/restore целого профиля
+остаётся непроверенной процедурой; нельзя независимо восстанавливать старую
+SQLite поверх другого native-каталога Deluge и считать это доказанной сверкой.
+
+## Политика, перезапуск и подтверждение после аварии
+
+| Действие | Результат |
+| --- | --- |
+| Обычный stop/start deluged | Сохраняются record_id, временность, FIFO, публикация и metadata/viewed |
+| Явно отключить Stream в Plugins | Сбрасываются экземплярные связи; при включении торренты постоянные и неопубликованные, новые record_id |
+| Crash/SIGKILL | Временность/FIFO сохраняются, но прежняя публикация и автоочистка заблокированы до подтверждения администратором |
+| Remove/re-add при работающем плагине | Новый record_id, без наследования прежней временности и публикации |
+
+После crash страница Stream показывает необходимость подтверждения. Даже если
+затем штатно перезапустить daemon, это требование не пропадёт. Сначала проверьте
+текущий каталог: администратор подтверждает применение сохранённой политики
+**к нынешним торрентам**, а не автоматическое доказательство их идентичности.
+Ненужную временность можно предварительно снять. Hardlinks на служебные файлы
+или payload для политики не требуются. [Обоснование решения](docs/instance-identity-decision.md).
+
+Полное управление кнопками Web UI запланировано на фазу 4. Пока доступны RPC
+namespace `stream`, версия API **1**:
+
+| Метод | Параметры после api_version | Доступ |
+| --- | --- | --- |
+| get_config / set_config | — / changes | Администратор |
+| get_status | Список до 128 Deluge torrent id | Владелец/admin, shared — чтение |
+| set_retention | torrent_id, record_id, boolean temporary | Владелец/admin; проверка безопасных путей |
+| set_published | torrent_id, record_id, boolean published | Владелец/admin; true недоступен при recovery_required |
+| publish_existing | hash_alias, boolean save_to_db | Владелец/admin; публикует существующий torrent, не создаёт новый и не понижает постоянство |
+| get_diagnostics | — | Авторизованный пользователь; recovery_token только admin |
+| confirm_recovery | Актуальный recovery_token | Администратор, повторная проверка каталога и путей |
+
+Через консоль разработчика **уже авторизованного штатного Web UI**, после
+подключения к daemon, можно запросить настройки и изменить лимит:
+
+```js
+deluge.client.stream.get_config(1, {success: console.log, failure: console.error});
+deluge.client.stream.set_config(1, {max_temporary_torrents: 3},
+    {success: console.log, failure: console.error});
+```
+
+Для работы с торрентом сначала get_status(1, [torrent_id]), затем используйте
+возвращённый record_id в set_retention/set_published. Устаревший record_id
+отклоняется. В ответе `published_requested` — сохранённое желание публикации,
+а `published` — эффективное разрешение с учётом recovery gate.
+
+После crash администратор получает get_diagnostics(1) и, **проверив каталог**,
+явно вызывает confirm_recovery(1, recovery_token). Между чтением token и
+подтверждением каталог не должен измениться; иначе вернётся operation_conflict.
+RPC не передаёт payload и не требует пароля Deluge в URL. Backend-вызовы проверены
+реальными daemon/Web JSON тестами; вставка примеров в пользовательский браузер
+отдельно не автоматизирована.
+
+Полная схема настроек — [deluge_stream/config.py](deluge_stream/config.py).
+Сейчас активно сохраняются и применяются policy-настройки. `torrent_owner`
+проверяется по аккаунтам daemon; пока он пуст, будущий listener не имеет контекста
+владельца. HTTP/window/download-параметры подготовлены для фаз 3–4: они **ещё не
+включают TorrServer, downloads или продуктовый listener**. Исследовательский
+loopback-probe по-прежнему отдельный, с эфемерной admin-авторизацией.
+
+Ошибочная настройка отклоняется целиком. Неизвестная/повреждённая SQLite выключает
+функции плагина, но не заменяется пустой БД и не останавливает Deluge. Проверка
+временности консервативна: symlinks, hardlinks payload и пересекающиеся пути
+отклоняются. Текущие предохранительные пределы — 4096 торрентов каталога, 10000
+native file entries в проверке путей, 32 DB-работы/управляющих операции; превышение
+не маскируется успехом. Если metadata ещё не готовы, временность не включается.
 
 ## Как устроена разработка
 
@@ -126,4 +259,4 @@ Docker Compose и инструкции работы с постоянными vo
 - [План и статус фаз](tasks/README.md) — этапы 0–5 и обязательный Makefile/CI/CD.
 - [Отчёты](tasks/implementation/README.md) — что выполнено и чем проверено.
 
-Завершена [фаза 0: проверка возможностей Deluge и воспроизводимая сборка](tasks/phase0-feasibility-and-tooling.md). Следующая — фаза 1: каркас, persistence, lifecycle и CI. Непроверенные продуктовые возможности не считаются готовыми на основании исследовательских результатов.
+Завершены [фаза 0](tasks/phase0-feasibility-and-tooling.md) и [фаза 1](tasks/phase1-core-persistence-and-ci.md). Следующая — фаза 2: FIFO-очистка и защита передач; она ещё не начата. Непроверенные продуктовые возможности не считаются готовыми на основании исследовательских результатов.

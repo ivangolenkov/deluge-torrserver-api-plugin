@@ -11,34 +11,204 @@ from twisted.internet import defer, reactor
 from twisted.web.resource import Resource
 from twisted.web.server import NOT_DONE_YET, Site
 
+from . import API_VERSION, __version__
 from .adapter import PieceAdapter, deregister_rpc
+from .lifecycle import PolicyService
+from .policy_adapter import PolicyAdapter, check_runtime
 from .ranges import InvalidRange, UnsatisfiableRange, resolve_range
 
 log = logging.getLogger(__name__)
 
 
 class Core(CorePluginBase):
+    @defer.inlineCallbacks
     def enable(self):
+        self._closing = None
+        self._close_done = False
+        self._close_result = None
+        self._close_waiters = []
+        self._daemon_stopping = False
+        self.policy = None
+        self.listener = None
+        self.adapter = None
+        self._shutdown_id = reactor.addSystemEventTrigger(
+            "before", "shutdown", self._shutdown
+        )
         self.token = secrets.token_hex(32)
-        self.adapter = PieceAdapter(reactor)
         self.active = None
         try:
+            check_runtime()
+            self.policy = PolicyService(reactor, PolicyAdapter)
+            yield self.policy.open()
+            if self._closing is not None:
+                raise RuntimeError("operation_conflict")
+            self.adapter = PieceAdapter(reactor)
             site = Site(Probe(self))
             site.log = lambda _: None  # No query strings/tokens in access logs.
             self.listener = reactor.listenTCP(0, site, interface="127.0.0.1")
         except Exception:
-            self.adapter.close()
+            yield self._close(reset=False)
             raise
 
     def disable(self):
+        reset = not (
+            self._daemon_stopping
+            or (self.policy is not None and self.policy.adapter.daemon_stopping())
+        )
+        return self._close(reset=reset)
+
+    def stop(self):
+        # Component shutdown is not a user's explicit plugin disable.
+        self._daemon_stopping = True
+        return self._close(reset=False)
+
+    def _shutdown(self):
+        # Deluge 2.2.0's PluginManager.stop doesn't await disable_plugins(), and
+        # auto-enabled plugin Components can still be Stopped. Our own shutdown
+        # trigger must retain the reactor until SQLite drain/join completes.
+        self._daemon_stopping = True
+        return self._close(reset=False)
+
+    def _close(self, *, reset):
+        observer = defer.Deferred()
+        if self._close_done:
+            observer.callback(self._close_result)
+            return observer
+        self._close_waiters.append(observer)
+        if self._closing is None:
+            # Deluge can call disable() and component.stop() concurrently during
+            # daemon shutdown. Each must receive its own Deferred chain.
+            self._closing = True
+            self._do_close(reset=reset).addBoth(self._closed)
+        return observer
+
+    def _closed(self, result):
+        self._close_done = True
+        self._close_result = result
+        if self._shutdown_id is not None:
+            try:
+                reactor.removeSystemEventTrigger(self._shutdown_id)
+            except ValueError:
+                pass
+            self._shutdown_id = None
+        waiters, self._close_waiters = self._close_waiters, []
+        for waiter in waiters:
+            if not waiter.called:
+                waiter.callback(result)
+        return None
+
+    @defer.inlineCallbacks
+    def _do_close(self, *, reset):
         if self.active is not None:
             request = self.active.request
             self.active.stopProducing()
             request.transport.abortConnection()
-        self.adapter.close()
+        if self.adapter is not None:
+            self.adapter.close()
         self.token = None
         deregister_rpc(self)
-        return self.listener.stopListening()
+        try:
+            if self.listener is not None:
+                yield self.listener.stopListening()
+        finally:
+            if self.policy is not None:
+                yield self.policy.close(reset=reset)
+
+    def update(self):
+        if self.policy is not None:
+            self.policy.update()
+
+    def __del__(self):
+        try:
+            deregister_rpc(self)
+        except KeyError:
+            pass
+
+    @staticmethod
+    def _version(api_version):
+        if type(api_version) is not int or api_version != API_VERSION:
+            raise ValueError("incompatible_api")
+
+    @staticmethod
+    def _public(work):
+        def failed(failure):
+            code = str(failure.value)
+            if code not in {
+                "invalid_config",
+                "invalid_owner",
+                "invalid_request",
+                "forbidden",
+                "operation_conflict",
+                "recovery_required",
+                "torrent_not_found",
+                "metadata_pending",
+                "unsafe_paths",
+                "shared_paths",
+                "catalogue_limit",
+                "path_check_limit",
+            }:
+                code = "storage_error"
+            raise RuntimeError(code) from None
+
+        return work.addErrback(failed)
+
+    @export(5)
+    def get_status(self, api_version, torrent_ids):
+        self._version(api_version)
+        return self.policy.get_status(torrent_ids, self.policy.adapter.actor())
+
+    @export(5)
+    def set_retention(self, api_version, torrent_id, record_id, temporary):
+        self._version(api_version)
+        if type(temporary) is not bool:
+            raise ValueError("invalid_request")
+        return self._public(
+            self.policy.mutate(
+                torrent_id, record_id, self.policy.adapter.actor(), temporary=temporary
+            )
+        )
+
+    @export(5)
+    def set_published(self, api_version, torrent_id, record_id, published):
+        self._version(api_version)
+        if type(published) is not bool:
+            raise ValueError("invalid_request")
+        return self._public(
+            self.policy.mutate(
+                torrent_id, record_id, self.policy.adapter.actor(), published=published
+            )
+        )
+
+    @export(5)
+    def publish_existing(self, api_version, hash_alias, save_to_db):
+        """Existing-add policy primitive. Does not create a native torrent."""
+        self._version(api_version)
+        return self._public(
+            self.policy.publish_existing(
+                hash_alias, save_to_db, self.policy.adapter.actor()
+            )
+        )
+
+    @export(10)
+    def get_config(self, api_version):
+        self._version(api_version)
+        if not self.policy.adapter.actor()[1]:
+            raise ValueError("forbidden")
+        return dict(self.policy.config)
+
+    @export(10)
+    def set_config(self, api_version, changes):
+        self._version(api_version)
+        return self._public(
+            self.policy.set_config(changes, self.policy.adapter.actor())
+        )
+
+    @export(10)
+    def confirm_recovery(self, api_version, catalogue_token):
+        self._version(api_version)
+        return self._public(
+            self.policy.confirm_recovery(catalogue_token, self.policy.adapter.actor())
+        )
 
     @export(10)
     def probe_info(self):
@@ -50,6 +220,28 @@ class Core(CorePluginBase):
             "python": sys.version.split()[0],
             "active": self.active is not None,
             "waiting": self.adapter.pending is not None,
+        }
+
+    @export(5)
+    def get_diagnostics(self, api_version):
+        """Authenticated capability handshake; no torrents, paths or probe key."""
+        if type(api_version) is not int or api_version != API_VERSION:
+            raise ValueError("incompatible_api")
+        return {
+            "api_version": API_VERSION,
+            "plugin_version": __version__,
+            "deluge_version": get_version(),
+            "python_version": sys.version.split()[0],
+            "storage_active": self.policy is not None and self.policy.ready,
+            "torrserver_active": False,
+            "policy_rpc_available": self.policy is not None and self.policy.ready,
+            "error": self.policy.error if self.policy is not None else "storage_error",
+            "recovery_required": self.policy.recovery_required if self.policy else True,
+            "recovery_token": (
+                self.policy.recovery_token
+                if self.policy and self.policy.adapter.actor()[1]
+                else None
+            ),
         }
 
 

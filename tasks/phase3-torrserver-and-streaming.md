@@ -14,6 +14,7 @@
 
 - Реализовать маршруты и DTO из ТЗ по fixtures фазы 0: add/list/get/rem, file list, preload/stat/play, cache, settings и viewed set/list/rem с persistence. Различать source-derived TSH schemas и реальные MatriX.147.1/Lampa записи; stat эталона числовой, preload возвращает пустой 200. Не копировать null/пустые ответы и cache placeholders без проверки целевых клиентов.
 - Сохранить правила публикации, владельца, постоянства и повторного add; не раскрывать через TorrServer произвольные торренты daemon.
+- Использовать effective publication PolicyService, а не только сохранённый published_requested: после crash публикация заблокирована до admin confirmation. Не трактовать подтверждение policy как автоматическое доказательство identity для replay старых QoS overrides.
 - Реализовать точную нумерацию файлов, hash aliases и обработку ещё не полученных metadata. Не включать pad-файлы как пользовательские.
 - Соблюсти различие rem, drop/wipe и автоматического удаления с данными согласно ТЗ.
 - Поддержать CORS *, OPTIONS, GET/HEAD и все требуемые single Range. Ошибки, Content-Length, Content-Range и выдаваемые байты должны соответствовать контракту.

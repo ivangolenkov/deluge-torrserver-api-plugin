@@ -57,7 +57,13 @@ subprocess.run(
     timeout=120,
 )
 if args.mode == "integration":
-    for script in ("research.py", "guards.py", "cleanup.py"):
+    for script in (
+        "research.py",
+        "guards.py",
+        "cleanup.py",
+        "policy_smoke.py",
+        "policy_crash_probe.py",
+    ):
         subprocess.run(
             [
                 sys.executable,
@@ -71,3 +77,28 @@ if args.mode == "integration":
             check=True,
             timeout=300,
         )
+else:
+    subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(Path("tests/runtime/web_contract.py").resolve()),
+            "--egg",
+            str(egg),
+        ],
+        check=True,
+        timeout=30,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(Path("tests/runtime/web_smoke.py").resolve()),
+            "--egg",
+            str(egg),
+            "--profile-root",
+            args.profile_root,
+        ],
+        check=True,
+        timeout=180,
+    )

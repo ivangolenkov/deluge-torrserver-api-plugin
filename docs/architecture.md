@@ -1,6 +1,8 @@
-# Архитектура: результаты фазы 0
+# Архитектура: исследования фазы 0 и каркас фазы 1
 
-Статус: исследовательский прототип, не продуктовая реализация. Контракт — [SPEC.md](../SPEC.md).
+Есть core/web/policy-каркас фазы 1, но не полный TorrServer-продукт. Разделы о
+reader/QoS/ZIP ниже сохраняют границы исследований фазы 0; продуктовая интеграция
+storage описана отдельно в конце. Контракт — [SPEC.md](../SPEC.md).
 
 ## Проверенный путь чтения
 
@@ -240,9 +242,33 @@ ZIP_STORED, `open(..., force_zip64=True)`. Эксперимент пишет 4 G
 backpressure, правами и защитой от FIFO. До продуктовой реализации остаются
 проверки независимым архиватором, неравномерных данных и реального HTTP cancel.
 
+## Фаза 1: storage и lifecycle Core
+
+`repository.py` реализует продуктовые таблицы policy/aliases/metadata/settings/
+journal/viewed, атомарные versioned миграции и переходы политики с revision-CAS.
+`db_worker.py` выполняет эти синхронные операции через один DB-поток с
+ограниченным допуском, отменой ожиданий и неблокирующим drain/join. Это отдельный
+слой, **не** подключение исследовательского RecoveryLedger к продукту.
+
+Storage вызывается Core через PolicyService и PolicyAdapter: native catalogue/events,
+versioned RPC, owner/admin, instance keys и admission по ограниченному плану путей.
+Обычный native restore сохраняет record_id/FIFO. Явный disable атомарно сбрасывает
+bindings policy/aliases/metadata/viewed, но не настройки и FIFO-counter.
+
+SQLite-транзакция policy+journal не является общей транзакцией с Deluge. После
+crash dirty marker сохраняет требование подтверждения администратором: policy/FIFO
+сохранены, effective publication и будущая автоочистка закрыты до confirm_recovery
+с актуальным token/catalogue. Hardlinks для политики не требуются. Подтверждение
+политики не означает автоматическое разрешение на replay старого QoS-журнала.
+[Итоговый отчёт](../tasks/implementation/phase1-report.md).
+
 ## Пока не реализовано
 
-Продуктовая SQLite/reconciliation, политики, FIFO, TorrServer API, Web UI,
-downloads/tickets, streaming QoS и recovery. Исследовательский журнал не является
-реализацией persistence фазы 1. Для v2/hybrid ещё не проверены реальные клиенты
+Есть начальный web entry point с versioned core handshake и диагностической
+страницей. JSON/daemon RPC авторизованы штатным Deluge, бинарные данные через
+них не передаются. Это не управление торрентами или настройки streaming.
+
+Автоочистка FIFO, TorrServer API, полный Web UI, downloads/tickets, streaming
+QoS и recovery. Исследовательский журнал не является реализацией persistence
+фазы 1. Для v2/hybrid ещё не проверены реальные клиенты
 и передача payload по всем вариантам; metadata matrix не заменяет playback.

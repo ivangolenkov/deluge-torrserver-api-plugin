@@ -6,6 +6,7 @@ import json
 import shutil
 import socket
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -306,6 +307,11 @@ def main(reactor):
         try:
             assert "Stream" in manager.get_available_plugins()
             baseline = len(component.get("AlertManager").handlers["read_piece"])
+            event_baseline = sum(
+                len(items) for items in component.get("EventManager").handlers.values()
+            )
+            fields_baseline = set(manager.status_fields)
+            shutdown_baseline = len(reactor._eventTriggers["shutdown"].before)
             for _ in range(20):
                 assert (yield manager.enable_plugin("Stream"))
                 plugin = manager.plugins["Stream"].plugin
@@ -325,9 +331,33 @@ def main(reactor):
                     == baseline
                 )
                 assert not plugin.listener.connected
+                assert set(manager.status_fields) == fields_baseline
+                assert (
+                    sum(
+                        len(items)
+                        for items in component.get("EventManager").handlers.values()
+                    )
+                    == event_baseline
+                )
+                assert (
+                    len(reactor._eventTriggers["shutdown"].before) == shutdown_baseline
+                )
+                assert not any(
+                    t.name.startswith("PoolThread-stream-sqlite")
+                    for t in threading.enumerate()
+                )
+                assert not any(
+                    getattr(call.func, "__module__", "").startswith("deluge_stream")
+                    for call in reactor.getDelayedCalls()
+                )
+                assert not any(
+                    name.startswith("stream.")
+                    for name in daemon.rpcserver.get_method_list()
+                )
             print(
                 "SMOKE: installed egg; 20 enable/disable cycles; RPC registered; "
-                "no read handlers/listeners leaked",
+                "no handlers/listeners/status fields/DB threads/"
+                "timers/shutdown hooks leaked",
                 flush=True,
             )
             if args.mode == "integration":

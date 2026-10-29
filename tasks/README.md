@@ -13,10 +13,18 @@
 Lampa 3.4.4 в Chromium; это согласованный объём клиентского DoD фазы 0.
 Num и полноценный playback/UI остаются непроверенными и перенесены в последующую приёмку.
 
+В фазе 1 подготовлены SQLite repository/worker, core/web handshake и диагностическая
+страница, workflow checks через make ci-check. Storage подключён к Core, добавлены
+policy RPC/status fields и схема настроек; lifecycle/crash проверены. Вместо
+hardlink-контракта согласован [сброс связей на явном отключении](../docs/instance-identity-decision.md),
+без сброса политики на обычном restart daemon. После crash — подтверждение
+администратором перед прежней публикацией и будущей очисткой. Фаза 1 завершена;
+результаты и ограничения — в [отчёте](implementation/phase1-report.md).
+
 | Фаза | Файл | Результат | Статус |
 | --- | --- | --- | --- |
 | 0 | [Проверка реализуемости и инструменты](phase0-feasibility-and-tooling.md) | Подтверждённый runtime, прототип, fixtures, рабочий Makefile и начальные инструкции | Завершена |
-| 1 | [Каркас, persistence, lifecycle и CI](phase1-core-persistence-and-ci.md) | Core/web package, SQLite, адаптер, политика и автоматические проверки GitHub Actions | Не начата |
+| 1 | [Каркас, persistence, lifecycle и CI](phase1-core-persistence-and-ci.md) | Core/web package, SQLite, адаптер, политика и автоматические проверки GitHub Actions | Завершена |
 | 2 | [FIFO и защита передач](phase2-retention-and-transfer-lifecycle.md) | Безопасная очистка, refcount/reservations и восстановление удаления | Не начата |
 | 3 | [TorrServer и streaming QoS](phase3-torrserver-and-streaming.md) | HTTP/Range, preload, reader, несколько просмотров, временные приоритеты | Не начата |
 | 4 | [Файлы, ZIP и Web UI](phase4-downloads-zip-and-webui.md) | Готовые downloads, ZIP64, настройки и состояния в стандартном Web UI | Не начата |
