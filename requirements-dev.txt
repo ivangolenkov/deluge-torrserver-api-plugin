@@ -1,0 +1,7 @@
+-c constraints.txt
+setuptools==75.8.0
+wheel==0.45.1
+ruff==0.9.10
+pytest==8.3.5
+markdown-it-py==3.0.0
+jsonschema==4.23.0

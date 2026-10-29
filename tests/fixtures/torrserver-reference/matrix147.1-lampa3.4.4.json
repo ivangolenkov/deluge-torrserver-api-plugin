@@ -1,0 +1,1849 @@
+{
+  "provenance": {
+    "kind": "reference-runtime-capture",
+    "reference": "MatriX.147.1",
+    "reference_commit": "d84f41968780744d4b8643f7a73b22a84d2c3779",
+    "binary_sha256": "f73ad19eaf7c78f753fd7a6e7c4da7849e77e79a4c39ea56fe73ce43ee7136c4",
+    "platform": "linux/arm64",
+    "python": "3.11.2",
+    "client_captured": true,
+    "num_verified": false,
+    "plugin_verified": false,
+    "full_ui_playback_verified": false,
+    "fixture": {
+      "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+      "bytes": 4194304,
+      "sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e",
+      "media_decodable": false,
+      "public_swarm": false
+    },
+    "lampa": {
+      "commit": "86f3afa5997793242cc2a081da96efb0934ae71f",
+      "version": "3.4.4",
+      "bundle_sha256": "b4a1384a5ebd220caa49451bdbcf5f6efc18d4bdc11777d456c0d988a9cbae75"
+    }
+  },
+  "cases": [
+    {
+      "name": "echo",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/echo",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": "12"
+        },
+        "body": {
+          "kind": "text",
+          "value": "MatriX.147.1"
+        }
+      }
+    },
+    {
+      "name": "settings-get",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/settings",
+        "headers": {
+          "content-length": "17",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1484"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "CacheSize": 67108864,
+            "ReaderReadAHead": 95,
+            "PreloadCache": 50,
+            "UseDisk": false,
+            "TorrentsSavePath": "",
+            "RemoveCacheOnDrop": false,
+            "ForceEncrypt": false,
+            "RetrackersMode": 1,
+            "TrackersListURL": "",
+            "DefaultTrackers": "http://retracker.local/announce\nhttp://bt4.t-ru.org/ann?magnet\nhttp://retracker.mgts.by:80/announce\nhttp://tracker.city9x.com:2710/announce\nhttp://tracker.electro-torrent.pl:80/announce\nhttp://tracker.internetwarriors.net:1337/announce\nhttp://tracker2.itzmx.com:6961/announce\nudp://opentor.org:2710\nudp://public.popcorn-tracker.org:6969/announce\nudp://tracker.opentrackr.org:1337/announce\nhttp://bt.svao-ix.ru/announce\nudp://explodie.org:6969/announce\nwss://tracker.btorrent.xyz\nwss://tracker.openwebtorrent.com",
+            "TorrentDisconnectTimeout": 30,
+            "EnableDebug": false,
+            "EnableDLNA": false,
+            "EnableBonjour": true,
+            "FriendlyName": "",
+            "EnableRutorSearch": false,
+            "EnableTorznabSearch": false,
+            "TorznabUrls": null,
+            "TMDBSettings": {
+              "APIKey": "",
+              "APIURL": "https://api.themoviedb.org",
+              "ImageURL": "https://image.tmdb.org",
+              "ImageURLRu": "https://imagetmdb.com"
+            },
+            "EnableIPv6": false,
+            "DisableTCP": false,
+            "DisableUTP": false,
+            "DisableUPNP": false,
+            "DisableDHT": false,
+            "DisablePEX": false,
+            "DisableUpload": false,
+            "DownloadRateLimit": 0,
+            "UploadRateLimit": 0,
+            "ConnectionsLimit": 25,
+            "PeersListenPort": 0,
+            "EnableLPD": true,
+            "LPDIPv6": false,
+            "SslPort": 0,
+            "SslCert": "",
+            "SslKey": "",
+            "ResponsiveMode": true,
+            "ShowFSActiveTorr": true,
+            "StoreSettingsInJson": true,
+            "StoreViewedInJson": false,
+            "TrackTimecode": false,
+            "MergeAllM3U": false
+          }
+        }
+      }
+    },
+    {
+      "name": "list-empty",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "18",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "2"
+        },
+        "body": {
+          "kind": "json",
+          "value": []
+        }
+      }
+    },
+    {
+      "name": "get-missing",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "69",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get",
+            "hash": "0000000000000000000000000000000000000000"
+          }
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "unknown-action",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "21",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "unknown"
+          }
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "39"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "error": "unknown action: \"unknown\""
+          }
+        }
+      }
+    },
+    {
+      "name": "cors",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/torrents",
+        "headers": {
+          "content-type": "application/json",
+          "origin": "http://example.invalid",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "access-control-allow-headers": "Origin,Content-Length,Content-Type,X-Requested-With,Accept,Authorization,Mcp-Protocol-Version,Mcp-Session-Id,Last-Event-Id,Mcp-Method,Mcp-Name",
+          "access-control-allow-methods": "GET,POST,PUT,PATCH,HEAD,OPTIONS,DELETE",
+          "access-control-allow-origin": "*"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "add-local",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "121",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "add",
+            "link": "http://127.0.0.1:18091/fixture.torrent",
+            "title": "Fixture",
+            "data": "{}",
+            "save_to_db": true
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "400"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "title": "Fixture",
+            "category": "",
+            "poster": "",
+            "data": "{}",
+            "timestamp": 1793259625,
+            "name": "fixture.mp4",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "torrs_hash": "EYiYsi1EUnhXW9bfy2OdUthhYXWwy8PFoOAykYZRQyQT6AnzGHz1xeuzmgidAB5iYNhG7vmpYtHjo4oqGzWLslfKVB28gqjWtCjScJ5bPN9at",
+            "stat": 0,
+            "stat_string": "Torrent added",
+            "torrent_size": 4194304,
+            "file_stats": [
+              {
+                "id": 1,
+                "path": "fixture.mp4",
+                "length": 4194304
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get-files",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "69",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "436"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "title": "Fixture",
+            "category": "",
+            "poster": "",
+            "data": "{}",
+            "timestamp": 1793259625,
+            "name": "fixture.mp4",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "torrs_hash": "EYiYsi1EUnhXW9bfy2OdUthhYXWwy8PFoOAykYZRQyQT6AnzGHz1xeuzmgidAB5iYNhG7vmpYtHjo4oqGzWLslfKVB28gqjWtCjScJ5bPN9at",
+            "stat": 3,
+            "stat_string": "Torrent working",
+            "torrent_size": 4194304,
+            "total_peers": 1,
+            "pending_peers": 1,
+            "file_stats": [
+              {
+                "id": 1,
+                "path": "fixture.mp4",
+                "length": 4194304
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "stat",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&stat",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "436"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "title": "Fixture",
+            "category": "",
+            "poster": "",
+            "data": "{}",
+            "timestamp": 1793259625,
+            "name": "fixture.mp4",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "torrs_hash": "EYiYsi1EUnhXW9bfy2OdUthhYXWwy8PFoOAykYZRQyQT6AnzGHz1xeuzmgidAB5iYNhG7vmpYtHjo4oqGzWLslfKVB28gqjWtCjScJ5bPN9at",
+            "stat": 3,
+            "stat_string": "Torrent working",
+            "torrent_size": 4194304,
+            "total_peers": 1,
+            "pending_peers": 1,
+            "file_stats": [
+              {
+                "id": 1,
+                "path": "fixture.mp4",
+                "length": 4194304
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "preload",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&preload",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "cache",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/cache",
+        "headers": {
+          "content-length": "69",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "Hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "Capacity": 67108864,
+            "Filled": 4194304,
+            "PiecesLength": 65536,
+            "PiecesCount": 64,
+            "Torrent": {
+              "title": "Fixture",
+              "category": "",
+              "poster": "",
+              "data": "{}",
+              "timestamp": 1793259625,
+              "name": "fixture.mp4",
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "torrs_hash": "EYiYsi1EUnhXW9bfy2OdUthhYXWwy8PFoOAykYZRQyQT6AnzGHz1xeuzmgidAB5iYNhG7vmpYtHjo4oqGzWLslfKVB28gqjWtCjScJ5bPN9at",
+              "stat": 3,
+              "stat_string": "Torrent working",
+              "loaded_size": 4194304,
+              "torrent_size": 4194304,
+              "preload_size": 33554432,
+              "bytes_written": 5793,
+              "bytes_read": 4198336,
+              "bytes_read_data": 4194304,
+              "bytes_read_useful_data": 4194304,
+              "chunks_read": 256,
+              "chunks_read_useful": 256,
+              "pieces_dirtied_good": 64,
+              "file_stats": [
+                {
+                  "id": 1,
+                  "path": "fixture.mp4",
+                  "length": 4194304
+                }
+              ]
+            },
+            "Pieces": {
+              "0": {
+                "Id": 0,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "1": {
+                "Id": 1,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "10": {
+                "Id": 10,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "11": {
+                "Id": 11,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "12": {
+                "Id": 12,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "13": {
+                "Id": 13,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "14": {
+                "Id": 14,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "15": {
+                "Id": 15,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "16": {
+                "Id": 16,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "17": {
+                "Id": 17,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "18": {
+                "Id": 18,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "19": {
+                "Id": 19,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "2": {
+                "Id": 2,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "20": {
+                "Id": 20,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "21": {
+                "Id": 21,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "22": {
+                "Id": 22,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "23": {
+                "Id": 23,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "24": {
+                "Id": 24,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "25": {
+                "Id": 25,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "26": {
+                "Id": 26,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "27": {
+                "Id": 27,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "28": {
+                "Id": 28,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "29": {
+                "Id": 29,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "3": {
+                "Id": 3,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "30": {
+                "Id": 30,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "31": {
+                "Id": 31,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "32": {
+                "Id": 32,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "33": {
+                "Id": 33,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "34": {
+                "Id": 34,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "35": {
+                "Id": 35,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "36": {
+                "Id": 36,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "37": {
+                "Id": 37,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "38": {
+                "Id": 38,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "39": {
+                "Id": 39,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "4": {
+                "Id": 4,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "40": {
+                "Id": 40,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "41": {
+                "Id": 41,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "42": {
+                "Id": 42,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "43": {
+                "Id": 43,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "44": {
+                "Id": 44,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "45": {
+                "Id": 45,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "46": {
+                "Id": 46,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "47": {
+                "Id": 47,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "48": {
+                "Id": 48,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "49": {
+                "Id": 49,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "5": {
+                "Id": 5,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "50": {
+                "Id": 50,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "51": {
+                "Id": 51,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "52": {
+                "Id": 52,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "53": {
+                "Id": 53,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "54": {
+                "Id": 54,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "55": {
+                "Id": 55,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "56": {
+                "Id": 56,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "57": {
+                "Id": 57,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "58": {
+                "Id": 58,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "59": {
+                "Id": 59,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "6": {
+                "Id": 6,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "60": {
+                "Id": 60,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "61": {
+                "Id": 61,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "62": {
+                "Id": 62,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "63": {
+                "Id": 63,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "7": {
+                "Id": 7,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "8": {
+                "Id": 8,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              },
+              "9": {
+                "Id": 9,
+                "Length": 65536,
+                "Size": 65536,
+                "Completed": true,
+                "Priority": 0
+              }
+            },
+            "Readers": []
+          }
+        }
+      }
+    },
+    {
+      "name": "range-first",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&play",
+        "headers": {
+          "content-type": "application/json",
+          "range": "bytes=0-0",
+          "getcontentfeatures.dlna.org": "1"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1",
+          "content-range": "bytes 0-0/4194304",
+          "content-type": "video/mp4",
+          "contentfeatures.dlna.org": "DLNA.ORG_OP=11;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000",
+          "transfermode.dlna.org": "Streaming"
+        },
+        "body": {
+          "kind": "binary",
+          "bytes": 1,
+          "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+        }
+      }
+    },
+    {
+      "name": "range-seek",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&play",
+        "headers": {
+          "content-type": "application/json",
+          "range": "bytes=65530-65550",
+          "getcontentfeatures.dlna.org": "1"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "21",
+          "content-range": "bytes 65530-65550/4194304",
+          "content-type": "video/mp4",
+          "contentfeatures.dlna.org": "DLNA.ORG_OP=11;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000",
+          "transfermode.dlna.org": "Streaming"
+        },
+        "body": {
+          "kind": "binary",
+          "bytes": 21,
+          "sha256": "865e8f8b76aa1a64631b0e45c1239db9f61e4f18144c070361738a6d605600a8"
+        }
+      }
+    },
+    {
+      "name": "range-suffix",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&play",
+        "headers": {
+          "content-type": "application/json",
+          "range": "bytes=-17",
+          "getcontentfeatures.dlna.org": "1"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "17",
+          "content-range": "bytes 4194287-4194303/4194304",
+          "content-type": "video/mp4",
+          "contentfeatures.dlna.org": "DLNA.ORG_OP=11;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000",
+          "transfermode.dlna.org": "Streaming"
+        },
+        "body": {
+          "kind": "binary",
+          "bytes": 17,
+          "sha256": "6898433b35f774859b6f53c6752c54d9509d88c6234ec82b508eec280c63e2de"
+        }
+      }
+    },
+    {
+      "name": "head",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "HEAD",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&play",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "4194304",
+          "content-type": "video/mp4",
+          "transfermode.dlna.org": "Streaming"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "playlist",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "GET",
+        "path": "/playlist?hash=fb2986bfb0fa09967938bef733c25e1897c254b7",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "131",
+          "content-type": "audio/x-mpegurl"
+        },
+        "body": {
+          "kind": "text",
+          "value": "#EXTM3U\n#EXTINF:0,fixture.mp4\nhttp://127.0.0.1:18091/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&play\n"
+        }
+      }
+    },
+    {
+      "name": "viewed-before-set",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "70",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "81"
+        },
+        "body": {
+          "kind": "json",
+          "value": [
+            {
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "file_index": 1,
+              "timecode": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "viewed-set",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "104",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "set",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "file_index": 1,
+            "timecode": 12.5
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "viewed-list",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "70",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "81"
+        },
+        "body": {
+          "kind": "json",
+          "value": [
+            {
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "file_index": 1,
+              "timecode": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "viewed-after-restart",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "70",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "81"
+        },
+        "body": {
+          "kind": "json",
+          "value": [
+            {
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "file_index": 1,
+              "timecode": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "viewed-rem",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "86",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "rem",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "file_index": 1
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "viewed-after-rem",
+      "requester": "scripted-reference-probe",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "70",
+          "content-type": "application/json"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "4"
+        },
+        "body": {
+          "kind": "json",
+          "value": null
+        }
+      }
+    },
+    {
+      "name": "lampa-connected",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/settings",
+        "headers": {
+          "content-length": "16",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1484"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "CacheSize": 67108864,
+            "ReaderReadAHead": 95,
+            "PreloadCache": 50,
+            "UseDisk": false,
+            "TorrentsSavePath": "",
+            "RemoveCacheOnDrop": false,
+            "ForceEncrypt": false,
+            "RetrackersMode": 1,
+            "TrackersListURL": "",
+            "DefaultTrackers": "http://retracker.local/announce\nhttp://bt4.t-ru.org/ann?magnet\nhttp://retracker.mgts.by:80/announce\nhttp://tracker.city9x.com:2710/announce\nhttp://tracker.electro-torrent.pl:80/announce\nhttp://tracker.internetwarriors.net:1337/announce\nhttp://tracker2.itzmx.com:6961/announce\nudp://opentor.org:2710\nudp://public.popcorn-tracker.org:6969/announce\nudp://tracker.opentrackr.org:1337/announce\nhttp://bt.svao-ix.ru/announce\nudp://explodie.org:6969/announce\nwss://tracker.btorrent.xyz\nwss://tracker.openwebtorrent.com",
+            "TorrentDisconnectTimeout": 30,
+            "EnableDebug": false,
+            "EnableDLNA": false,
+            "EnableBonjour": true,
+            "FriendlyName": "",
+            "EnableRutorSearch": false,
+            "EnableTorznabSearch": false,
+            "TorznabUrls": null,
+            "TMDBSettings": {
+              "APIKey": "",
+              "APIURL": "https://api.themoviedb.org",
+              "ImageURL": "https://image.tmdb.org",
+              "ImageURLRu": "https://imagetmdb.com"
+            },
+            "EnableIPv6": false,
+            "DisableTCP": false,
+            "DisableUTP": false,
+            "DisableUPNP": false,
+            "DisableDHT": false,
+            "DisablePEX": false,
+            "DisableUpload": false,
+            "DownloadRateLimit": 0,
+            "UploadRateLimit": 0,
+            "ConnectionsLimit": 25,
+            "PeersListenPort": 0,
+            "EnableLPD": true,
+            "LPDIPv6": false,
+            "SslPort": 0,
+            "SslCert": "",
+            "SslKey": "",
+            "ResponsiveMode": true,
+            "ShowFSActiveTorr": true,
+            "StoreSettingsInJson": true,
+            "StoreViewedInJson": false,
+            "TrackTimecode": false,
+            "MergeAllM3U": false
+          }
+        }
+      }
+    },
+    {
+      "name": "lampa-add",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "GET",
+        "path": "/gst/echo",
+        "headers": {},
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "text/plain",
+          "content-length": "18"
+        },
+        "body": {
+          "kind": "text",
+          "value": "404 page not found"
+        }
+      }
+    },
+    {
+      "name": "lampa-add",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "167",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "add",
+            "link": "http://127.0.0.1:18091/fixture.torrent",
+            "title": "[LAMPA] Fixture",
+            "poster": "",
+            "data": "{\"fixture\":true}",
+            "save_to_db": true,
+            "category": "movie"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "451"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "title": "[LAMPA] Fixture",
+            "category": "movie",
+            "poster": "",
+            "data": "{\"fixture\":true}",
+            "timestamp": 1793259648,
+            "name": "fixture.mp4",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "torrs_hash": "1pRPur14dUIVjDX4MD0uHTZ0K9MdrMFxTH85Xobi6vobFWBcWVPWrgO1XUgaCKdtwbTDHvDuNXFWtNlGrq8zb588wfBylGFWmgBz3ghgeUHHgHnLe9TiOkkm7TurayO8kxy",
+            "stat": 0,
+            "stat_string": "Torrent added",
+            "torrent_size": 4194304,
+            "file_stats": [
+              {
+                "id": 1,
+                "path": "fixture.mp4",
+                "length": 4194304
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "lampa-files",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "66",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "487"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "title": "[LAMPA] Fixture",
+            "category": "movie",
+            "poster": "",
+            "data": "{\"fixture\":true}",
+            "timestamp": 1793259648,
+            "name": "fixture.mp4",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "torrs_hash": "1pRPur14dUIVjDX4MD0uHTZ0K9MdrMFxTH85Xobi6vobFWBcWVPWrgO1XUgaCKdtwbTDHvDuNXFWtNlGrq8zb588wfBylGFWmgBz3ghgeUHHgHnLe9TiOkkm7TurayO8kxy",
+            "stat": 3,
+            "stat_string": "Torrent working",
+            "torrent_size": 4194304,
+            "total_peers": 1,
+            "pending_peers": 1,
+            "file_stats": [
+              {
+                "id": 1,
+                "path": "fixture.mp4",
+                "length": 4194304
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "lampa-my",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "17",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "489"
+        },
+        "body": {
+          "kind": "json",
+          "value": [
+            {
+              "title": "[LAMPA] Fixture",
+              "category": "movie",
+              "poster": "",
+              "data": "{\"fixture\":true}",
+              "timestamp": 1793259648,
+              "name": "fixture.mp4",
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "torrs_hash": "1pRPur14dUIVjDX4MD0uHTZ0K9MdrMFxTH85Xobi6vobFWBcWVPWrgO1XUgaCKdtwbTDHvDuNXFWtNlGrq8zb588wfBylGFWmgBz3ghgeUHHgHnLe9TiOkkm7TurayO8kxy",
+              "stat": 3,
+              "stat_string": "Torrent working",
+              "torrent_size": 4194304,
+              "total_peers": 1,
+              "pending_peers": 1,
+              "file_stats": [
+                {
+                  "id": 1,
+                  "path": "fixture.mp4",
+                  "length": 4194304
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "lampa-viewed",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "67",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "4"
+        },
+        "body": {
+          "kind": "json",
+          "value": null
+        }
+      }
+    },
+    {
+      "name": "lampa-viewedSet",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "97",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "set",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "file_index": 1,
+            "timecode": 12.5
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "lampa-viewed",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/viewed",
+        "headers": {
+          "content-length": "67",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "list",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "81"
+        },
+        "body": {
+          "kind": "json",
+          "value": [
+            {
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "file_index": 1,
+              "timecode": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "lampa-cache",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/cache",
+        "headers": {
+          "content-length": "66",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "get",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "643"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "Hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "Capacity": 67108864,
+            "Filled": 0,
+            "PiecesLength": 65536,
+            "PiecesCount": 64,
+            "Torrent": {
+              "title": "[LAMPA] Fixture",
+              "category": "movie",
+              "poster": "",
+              "data": "{\"fixture\":true}",
+              "timestamp": 1793259648,
+              "name": "fixture.mp4",
+              "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+              "torrs_hash": "1pRPur14dUIVjDX4MD0uHTZ0K9MdrMFxTH85Xobi6vobFWBcWVPWrgO1XUgaCKdtwbTDHvDuNXFWtNlGrq8zb588wfBylGFWmgBz3ghgeUHHgHnLe9TiOkkm7TurayO8kxy",
+              "stat": 3,
+              "stat_string": "Torrent working",
+              "torrent_size": 4194304,
+              "total_peers": 1,
+              "pending_peers": 1,
+              "file_stats": [
+                {
+                  "id": 1,
+                  "path": "fixture.mp4",
+                  "length": 4194304
+                }
+              ]
+            },
+            "Pieces": {},
+            "Readers": []
+          }
+        }
+      }
+    },
+    {
+      "name": "browser-preload",
+      "requester": "browser-scripted-fetch",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&preload",
+        "headers": {},
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "name": "browser-stat",
+      "requester": "browser-scripted-fetch",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&stat",
+        "headers": {},
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "668"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "title": "[LAMPA] Fixture",
+            "category": "movie",
+            "poster": "",
+            "data": "{\"fixture\":true}",
+            "timestamp": 1793259648,
+            "name": "fixture.mp4",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7",
+            "torrs_hash": "1pRPur14dUIVjDX4MD0uHTZ0K9MdrMFxTH85Xobi6vobFWBcWVPWrgO1XUgaCKdtwbTDHvDuNXFWtNlGrq8zb588wfBylGFWmgBz3ghgeUHHgHnLe9TiOkkm7TurayO8kxy",
+            "stat": 3,
+            "stat_string": "Torrent working",
+            "loaded_size": 4194304,
+            "torrent_size": 4194304,
+            "preload_size": 33554432,
+            "bytes_written": 5732,
+            "bytes_read": 4198258,
+            "bytes_read_data": 4194304,
+            "bytes_read_useful_data": 4194304,
+            "chunks_read": 256,
+            "chunks_read_useful": 256,
+            "pieces_dirtied_good": 64,
+            "file_stats": [
+              {
+                "id": 1,
+                "path": "fixture.mp4",
+                "length": 4194304
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "browser-seek",
+      "requester": "browser-scripted-fetch",
+      "request": {
+        "method": "GET",
+        "path": "/stream/fixture.mp4?link=fb2986bfb0fa09967938bef733c25e1897c254b7&index=1&play",
+        "headers": {
+          "range": "bytes=65530-65550"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      },
+      "response": {
+        "status": 206,
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "21",
+          "content-range": "bytes 65530-65550/4194304",
+          "content-type": "video/mp4",
+          "transfermode.dlna.org": "Streaming"
+        },
+        "body": {
+          "kind": "binary",
+          "bytes": 21,
+          "sha256": "865e8f8b76aa1a64631b0e45c1239db9f61e4f18144c070361738a6d605600a8"
+        }
+      }
+    },
+    {
+      "name": "lampa-drop",
+      "requester": "lampa-module-browser",
+      "request": {
+        "method": "POST",
+        "path": "/torrents",
+        "headers": {
+          "content-length": "67",
+          "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "origin": "http://127.0.0.1:18091"
+        },
+        "body": {
+          "kind": "json",
+          "value": {
+            "action": "drop",
+            "hash": "fb2986bfb0fa09967938bef733c25e1897c254b7"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-length": "0"
+        },
+        "body": {
+          "kind": "empty",
+          "bytes": 0
+        }
+      }
+    }
+  ]
+}

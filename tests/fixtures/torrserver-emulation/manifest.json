@@ -1,0 +1,62 @@
+{
+  "provenance": {
+    "kind": "source-derived",
+    "repository": "torrent-stream-hub",
+    "commit": "043e26a2bd2479350dbc1d1486b32e85e7bacb7a",
+    "runtime_verified": false,
+    "client_captured": false,
+    "scope": "TorrServer HTTP emulation only; no engine, Web GUI or management API",
+    "files_sha256": {
+      "internal/delivery/http/torrserver/handlers.go": "e93c0e719bca0fd5e3a0131cc558ac3c10b2c56c6b2f64ef3646298bbc8011d7",
+      "internal/delivery/http/torrserver/handlers_test.go": "dd264db5ab00a3fccc4f0f5dbd1c46a0dccd57965307eae5a4b0a56b3c0fb811",
+      "internal/delivery/http/torrserver/stream_range.go": "757b73588bce1f041dec9ef1bbeecb0b7d6149f22791bbddc12595cb5600b8b4",
+      "internal/delivery/http/torrserver/stream_range_test.go": "6e86691ca36a8a20d5c41b9de8dcc9a181f1f4aab2226c7b866d6399ce09e9df",
+      "internal/delivery/http/response/response.go": "085dfb8c7196c816edc49a25856a4353aa1423200eecaa7c94d57bca312a52eb",
+      "internal/delivery/http/router.go": "8ea6efa615052a3817d9bbb74f8dc71e84eed55f07674cf68ba53812c8c70b00",
+      "internal/models/torrent.go": "ce945b403a7c70957dd57c965fb3af02100ce78bda3e881152d19a261ee5f5d6"
+    }
+  },
+  "routes": [
+    {"method": "GET", "path": "/echo", "handler": "Echo"},
+    {"method": "POST", "path": "/torrents", "handler": "Torrents"},
+    {"method": "POST", "path": "/torrent/upload", "handler": "UploadTorrent"},
+    {"method": "POST", "path": "/settings", "handler": "Settings"},
+    {"method": "POST", "path": "/cache", "handler": "Cache"},
+    {"method": "POST", "path": "/viewed", "handler": "Viewed"},
+    {"method": "GET", "path": "/playlist", "handler": "Playlist"},
+    {"method": "GET", "path": "/stream", "handler": "Stream"},
+    {"method": "HEAD", "path": "/stream", "handler": "Stream"},
+    {"method": "GET", "path": "/stream/{name}", "handler": "Stream"},
+    {"method": "HEAD", "path": "/stream/{name}", "handler": "Stream"},
+    {"method": "GET", "path": "/play/{hash}/{id}", "handler": "PlayAlias"},
+    {"method": "HEAD", "path": "/play/{hash}/{id}", "handler": "PlayAlias"}
+  ],
+  "torrents_actions": ["add", "get", "list", "set", "rem", "drop", "wipe"],
+  "echo": {"status": 200, "content_type": "text/plain", "body": "1.2.133"},
+  "stream_flag_precedence": ["m3u", "preload", "stat", "stream"],
+  "indexing": {
+    "stream_link": "1-based; legacy nonpositive values fall back to first file",
+    "play_alias": "1-based; legacy nonpositive values fall back to first file",
+    "stream_hash_shortcut": "internal 0-based unless link parameter is also present",
+    "file_stats": "internal index + 1, preserving gaps; nil entries skipped",
+    "plugin_target": "explicit payload-only mapping, no legacy nonpositive fallback"
+  },
+  "adopt": [
+    "JSON body accepted despite form Content-Type",
+    "data is opaque JSON text, not an embedded object",
+    "metadata-only set and safe drop/wipe",
+    "settings set/def are no-op",
+    "HEAD/GET stream and play aliases",
+    "binary Range and DLNA streaming headers"
+  ],
+  "do_not_copy_blindly": [
+    "stat is an internal string state in this snapshot, not verified original TorrServer DTO",
+    "viewed unconditionally returns status ok without parsing or persistence",
+    "cache PiecesLength/PiecesCount=0, Pieces={}, Readers=[] are placeholders",
+    "legacy hash= uses different indices from link=",
+    "HEAD preload has no method guard before warmup scheduling",
+    "playlist uses untrusted Host rather than configured public_base_url",
+    "settings numeric constants are not measured plugin RAM capacity",
+    "parseStreamRange is QoS bookkeeping; final HTTP is Go ServeContent, not SPEC range policy"
+  ]
+}

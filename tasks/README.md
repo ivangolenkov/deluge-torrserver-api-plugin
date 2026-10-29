@@ -2,13 +2,20 @@
 
 Основание: [SPEC.md](../SPEC.md), разделы 1–16. Правила выполнения — [AGENTS.md](../AGENTS.md).
 
-Подготовка этих файлов завершает планирование, но не реализацию. Все шесть фаз пока не начаты. Текущий следующий этап — фаза 0.
+Фаза 0 завершена: есть устанавливаемый исследовательский core-прототип, Makefile, v1/v2/hybrid matrix, SIGKILL/identity/worker-result guards, queue/session pause и retained-ownership recovery с commit/crash тестами. Клиентский gate закрыт реальными module-level fixtures Lampa/TorrServer по уточнению пользователя от 29 октября 2026 года; Num и полноценная UI/playback-приёмка отложены. Portability/GC/live QoS не объявлены готовыми исследованиями. См. [отчёт](implementation/phase0-report.md).
 
 ## Последовательность и статус
 
+По HTTP-эмуляции `torrent-stream-hub` сохранены source-derived schemas и примеры
+с provenance; [контракт и отличия от ТЗ](../docs/torrserver-contract.md).
+Сами source-derived примеры не заменяют реальные captures и не добавляют handlers фазы 3.
+Дополнительно записаны 35 реальных обменов TorrServer MatriX.147.1 и модуля
+Lampa 3.4.4 в Chromium; это согласованный объём клиентского DoD фазы 0.
+Num и полноценный playback/UI остаются непроверенными и перенесены в последующую приёмку.
+
 | Фаза | Файл | Результат | Статус |
 | --- | --- | --- | --- |
-| 0 | [Проверка реализуемости и инструменты](phase0-feasibility-and-tooling.md) | Подтверждённый runtime, прототип, fixtures, рабочий Makefile и начальные инструкции | Не начата |
+| 0 | [Проверка реализуемости и инструменты](phase0-feasibility-and-tooling.md) | Подтверждённый runtime, прототип, fixtures, рабочий Makefile и начальные инструкции | Завершена |
 | 1 | [Каркас, persistence, lifecycle и CI](phase1-core-persistence-and-ci.md) | Core/web package, SQLite, адаптер, политика и автоматические проверки GitHub Actions | Не начата |
 | 2 | [FIFO и защита передач](phase2-retention-and-transfer-lifecycle.md) | Безопасная очистка, refcount/reservations и восстановление удаления | Не начата |
 | 3 | [TorrServer и streaming QoS](phase3-torrserver-and-streaming.md) | HTTP/Range, preload, reader, несколько просмотров, временные приоритеты | Не начата |
@@ -25,7 +32,7 @@
 
 ### Makefile
 
-Makefile создаётся в фазе 0 и расширяется вместе с кодом. Он пока не реализован. Не добавлять успешные заглушки для сборки или отсутствующих тестов.
+Makefile создан в фазе 0 и расширяется вместе с кодом. Текущий make check проверяет исследовательский прототип и сохранённые контрактные записи, но не подтверждает полную продуктовую приёмку. Не добавлять успешные заглушки для сборки или отсутствующих тестов.
 
 | Цель | Обязательный контракт | Фаза |
 | --- | --- | --- |

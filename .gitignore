@@ -1,1 +1,10 @@
 /.idea/
+/.venv/
+/build/
+/dist/
+/*.egg-info/
+/.pytest_cache/
+/.ruff_cache/
+/.playwright-mcp/
+__pycache__/
+*.py[cod]

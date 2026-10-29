@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observed MatriX.147.1 wire types, v1 local fixture; not full API coverage",
+  "$defs": {
+    "File": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "path": {"type": "string"},
+        "length": {"type": "integer", "minimum": 0}
+      },
+      "required": ["id", "path", "length"]
+    },
+    "Torrent": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string"},
+        "category": {"type": "string"},
+        "poster": {"type": "string"},
+        "data": {"type": "string"},
+        "timestamp": {"type": "integer"},
+        "name": {"type": "string"},
+        "hash": {"type": "string"},
+        "stat": {"type": "integer"},
+        "stat_string": {"type": "string"},
+        "torrent_size": {"type": "integer"},
+        "loaded_size": {"type": "integer"},
+        "preload_size": {"type": "integer"},
+        "download_speed": {"type": "number"},
+        "upload_speed": {"type": "number"},
+        "file_stats": {"type": "array", "items": {"$ref": "#/$defs/File"}}
+      },
+      "required": ["hash", "stat", "stat_string"]
+    },
+    "ViewedRequest": {
+      "type": "object",
+      "properties": {
+        "action": {"enum": ["set", "list", "rem"]},
+        "hash": {"type": "string"},
+        "file_index": {"type": "integer"},
+        "timecode": {"type": "number"}
+      },
+      "required": ["action", "hash"]
+    },
+    "ViewedMark": {
+      "type": "object",
+      "properties": {
+        "hash": {"type": "string"},
+        "file_index": {"type": "integer", "minimum": 1},
+        "timecode": {"type": "number"}
+      },
+      "required": ["hash", "file_index", "timecode"]
+    },
+    "ViewedList": {
+      "oneOf": [
+        {"type": "array", "items": {"$ref": "#/$defs/ViewedMark"}},
+        {"type": "null"}
+      ]
+    },
+    "Cache": {
+      "type": "object",
+      "properties": {
+        "Hash": {"type": "string"},
+        "Capacity": {"type": "integer"},
+        "Filled": {"type": "integer"},
+        "PiecesLength": {"type": "integer"},
+        "PiecesCount": {"type": "integer"},
+        "Torrent": {"$ref": "#/$defs/Torrent"},
+        "Pieces": {"type": "object", "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "Id": {"type": "integer"},
+            "Length": {"type": "integer"},
+            "Size": {"type": "integer"},
+            "Completed": {"type": "boolean"},
+            "Priority": {"type": "integer"}
+          },
+          "required": ["Id", "Length", "Size", "Completed", "Priority"]
+        }},
+        "Readers": {"type": "array"}
+      },
+      "required": ["Hash", "Capacity", "Filled", "PiecesLength", "PiecesCount", "Torrent", "Pieces", "Readers"]
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deluge-stream.invalid/fixtures/tsh-emulation.schema.json",
+  "title": "Observed Torrent-Stream-Hub emulation DTOs, not a final plugin wire contract",
+  "$defs": {
+    "TorrentsRequest": {
+      "type": "object",
+      "properties": {
+        "private_safe": {"type": "boolean"},
+        "action": {"type": "string", "enum": ["add", "get", "list", "set", "rem", "drop", "wipe"]},
+        "link": {"type": "string"},
+        "hash": {"type": "string"},
+        "title": {"type": "string"},
+        "data": {"type": "string"},
+        "poster": {"type": "string"},
+        "category": {"type": "string"},
+        "save_to_db": {"type": "boolean"}
+      },
+      "required": ["action"]
+    },
+    "TorrentStatus": {
+      "type": "object",
+      "properties": {
+        "hash": {"type": "string"},
+        "title": {"type": "string"},
+        "name": {"type": "string"},
+        "size": {"type": "integer"},
+        "data": {"type": "string"},
+        "poster": {"type": "string"},
+        "category": {"type": "string"},
+        "timestamp": {"type": "integer"},
+        "stat_string": {"type": "string"},
+        "loaded_size": {"type": "integer"},
+        "torrent_size": {"type": "integer"},
+        "preloaded_bytes": {"type": "integer"},
+        "preload_size": {"type": "integer"},
+        "preload_status": {"type": "string"},
+        "preload_error": {"type": "string"},
+        "download_speed": {"type": "integer"},
+        "upload_speed": {"type": "integer"},
+        "total_peers": {"type": "integer"},
+        "pending_peers": {"type": "integer"},
+        "active_peers": {"type": "integer"},
+        "connected_seeders": {"type": "integer"},
+        "half_open_peers": {"type": "integer"},
+        "file_stats": {"type": "array", "items": {"$ref": "#/$defs/FileStat"}},
+        "downloaded": {"type": "integer"},
+        "progress": {"type": "number"},
+        "progress_source": {"type": "string"},
+        "stat": {"type": "string"},
+        "error": {"type": "string"}
+      },
+      "required": [
+        "hash", "title", "name", "size", "data", "poster", "category", "timestamp",
+        "loaded_size", "torrent_size", "preloaded_bytes", "preload_size",
+        "download_speed", "upload_speed", "total_peers", "pending_peers", "active_peers",
+        "connected_seeders", "half_open_peers", "downloaded", "progress", "progress_source"
+      ]
+    },
+    "FileStat": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "path": {"type": "string"},
+        "length": {"type": "integer"},
+        "size": {"type": "integer"}
+      },
+      "required": ["id", "path", "length", "size"]
+    },
+    "TorrentList": {"type": "array", "items": {"$ref": "#/$defs/TorrentStatus"}},
+    "CacheRequest": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string"},
+        "hash": {"type": "string"},
+        "link": {"type": "string"},
+        "index": {"type": "integer"},
+        "offset": {"type": "integer"}
+      }
+    },
+    "CacheState": {
+      "type": "object",
+      "properties": {
+        "Hash": {"type": "string"},
+        "Capacity": {"type": "integer"},
+        "Filled": {"type": "integer"},
+        "PiecesLength": {"type": "integer"},
+        "PiecesCount": {"type": "integer"},
+        "Torrent": {"$ref": "#/$defs/TorrentStatus"},
+        "Pieces": {"type": "object"},
+        "Readers": {"type": "array"}
+      },
+      "required": ["Hash", "Capacity", "Filled", "PiecesLength", "PiecesCount", "Torrent", "Pieces", "Readers"]
+    },
+    "CacheResponse": {
+      "oneOf": [
+        {"type": "object", "maxProperties": 0},
+        {"$ref": "#/$defs/CacheState"}
+      ]
+    },
+    "SettingsRequest": {
+      "type": "object",
+      "properties": {"action": {"enum": ["", "get", "set", "def"]}}
+    },
+    "SettingsResponse": {
+      "type": "object",
+      "properties": {
+        "CacheSize": {"type": "integer"},
+        "ReaderReadAHead": {"type": "integer"},
+        "PreloadCache": {"type": "integer"},
+        "TorrentDisconnectTimeout": {"type": "integer"},
+        "ResponsiveMode": {"type": "boolean"}
+      },
+      "required": ["CacheSize", "ReaderReadAHead", "PreloadCache", "TorrentDisconnectTimeout", "ResponsiveMode"]
+    },
+    "StatusOK": {
+      "type": "object", "properties": {"status": {"const": "ok"}}, "required": ["status"]
+    },
+    "Error": {
+      "type": "object", "properties": {"error": {"type": "string"}}, "required": ["error"]
+    }
+  }
+}
