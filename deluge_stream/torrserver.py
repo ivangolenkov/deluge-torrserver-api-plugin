@@ -12,6 +12,7 @@ from twisted.web.http import HTTPChannel, parse_qs
 from twisted.web.resource import Resource
 from twisted.web.server import NOT_DONE_YET, Request, Site
 
+from .downloads import Downloads
 from .ranges import InvalidRange, UnsatisfiableRange, resolve_range
 from .stream_adapter import NativeStreams
 from .streaming import Streams
@@ -49,6 +50,9 @@ ERRORS = {
     "disabled": 503,
     "piece_read_error": 503,
     "response_limit": 413,
+    "ticket_invalid": 403,
+    "file_not_ready": 409,
+    "torrent_not_ready": 409,
 }
 
 
@@ -184,6 +188,7 @@ class TorrServer:
         self.reactor, self.policy = reactor, policy
         self.streams = Streams(reactor, policy, NativeStreams(policy))
         self.torrents = Torrents(reactor, policy, self.streams)
+        self.downloads = Downloads(self)
         self.listener = None
         self.site = None
         self.signature = None
@@ -243,6 +248,7 @@ class TorrServer:
     @defer.inlineCallbacks
     def close(self):
         self.closed = True
+        self.downloads.close()
         self.streams.close()
         for request in tuple(self.active_requests):
             request.transport.abortConnection()
@@ -333,8 +339,12 @@ class API(Resource):
     @defer.inlineCallbacks
     def _dispatch(self, request):
         s, torrents = self.server.policy, self.server.torrents
-        actor = torrents.actor()
         route = request.path.decode("utf-8")
+        if route.startswith("/download/"):
+            from .download_http import serve
+
+            return (yield serve(self.server, request, route.removeprefix("/download/")))
+        actor = torrents.actor()
         if route == "/echo" and request.method in (b"GET", b"HEAD"):
             return b"text/plain", b"MatriX.147.1"
         if route in ("/torrents", "/cache", "/settings", "/viewed", "/torrent/upload"):

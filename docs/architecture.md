@@ -308,8 +308,31 @@ manual operation и останавливает FIFO. Startup только про
 страницей. JSON/daemon RPC авторизованы штатным Deluge, бинарные данные через
 них не передаются. Это не управление торрентами или настройки streaming.
 
-Полный Web UI и HTTP downloads/tickets/ZIP остаются фазой 4. TorrServer API и
+Web UI и HTTP downloads/tickets/ZIP реализованы в фазе 4. TorrServer API и
 streaming QoS реализованы, но настоящие Lampa/Num ещё не проверены. Передача
 v1/v2/hybrid payload подтверждена binary fixtures, не decoder/playback видео.
 Собственный QoS recovery journal не планируется по согласованному упрощению.
 Исследовательский журнал не является реализацией persistence фазы 1.
+
+## Фаза 4: direct downloads и Web UI
+
+`downloads.py` выдаёт bounded ephemeral capabilities из авторизованного core RPC.
+Reservation создаётся до preflight; после выдачи ticket его TTL и lease TTL
+стартуют вместе. Активация выполняется под policy lock; HEAD не активирует/не
+продлевает ticket, активный GET переживает start TTL. Повторный доступ проверяет
+auth account, native instance, доступ и готовность. Метаданные tickets/ZIP
+учитываются отдельно от общего payload budget.
+
+`download_http.py` использует shared reader без deadlines. Состав ZIP определяется
+metadata без pad-файлов; readiness учитывает skipped. Native mapping и have_piece
+проверяются bounded reactor batches; lstat/fingerprints выполняет DB worker вне
+reactor. `archive.py` выдаёт STORE/ZIP64 headers/descriptors/central directory
+инкрементально; CRC считается по передаваемым chunks, весь архив не сохраняется.
+Native errors до тела становятся JSON, после начала ZIP соединение обрывается.
+
+`data/stream.js` расширяет Preferences, Details и контекстные меню штатного Deluge,
+не заменяя его state или native priorities. Core RPC выполняет policy mutations
+и ticket admission. Браузер следует обычной ссылке core listener; deluge-web не
+читает payload. `test-web` проверяет настоящий Chromium с установленным egg;
+`test-web-split` — два контейнера с internal network без общего payload FS.
+Статус и точные ограничения — [отчёт фазы 4](../tasks/implementation/phase4-report.md).

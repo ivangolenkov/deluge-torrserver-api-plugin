@@ -243,6 +243,21 @@ def test_short_native_read_is_not_served_as_valid_bytes(engine):
         result(pending)
 
 
+def test_native_storage_failure_releases_all_read_waiters(engine):
+    engine.adapter.ready.add(0)
+    pending = [engine.read(open_session(engine), 0) for _ in range(2)]
+
+    def failed(alert):
+        raise RuntimeError("disk_full")
+
+    engine.adapter.alert_data = failed
+    engine.adapter.emit(0)
+    for work in pending:
+        with pytest.raises(RuntimeError, match="disk_full"):
+            result(work)
+    assert not engine.jobs and engine.reserved == 0
+
+
 def test_preload_is_coalesced_and_not_playback(engine):
     assert result(engine.preload("a" * 40, "record", ("alice", False), 1)) is None
     assert result(engine.preload("a" * 40, "record", ("alice", False), 1)) is None
@@ -264,3 +279,23 @@ def test_limits_reject_without_reservation_leak(engine):
             raise RuntimeError("deadline_limit")
     assert not engine.sessions
     assert engine.reserved == 0
+
+
+@pytest.mark.parametrize("kind", ["file", "zip"])
+def test_download_never_schedules_missing_pieces(engine, kind):
+    session = open_session(engine, kind=kind, public=False)
+    assert not engine.owned and not engine.adapter.deadlines
+    with pytest.raises(RuntimeError, match="file_not_ready"):
+        result(engine.read(session, 0))
+    assert not engine.jobs and engine.reserved == 0
+
+
+def test_native_invalidation_cancels_only_matching_instance(engine):
+    session = open_session(engine)
+    work = engine.read(session, 0)
+    engine._invalidated(SimpleNamespace(native=object()))
+    assert not session.closed and not work.called
+    engine._invalidated(SimpleNamespace(native=engine.adapter.native))
+    assert session.closed
+    with pytest.raises(defer.CancelledError):
+        result(work)

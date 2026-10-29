@@ -26,6 +26,8 @@ jobs:
           persist-credentials: false
       - name: Build, test and install artifact in isolated profiles
         run: make ci-check
+      - name: Separate core and Web UI filesystems
+        run: make test-web-split
       - name: Test artifacts and logs (not a release)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

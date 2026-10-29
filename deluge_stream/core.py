@@ -158,6 +158,11 @@ class Core(CorePluginBase):
                 "catalogue_limit",
                 "path_check_limit",
                 "transfer_limit",
+                "file_not_ready",
+                "torrent_not_ready",
+                "public_url_required",
+                "invalid_file_id",
+                "ticket_invalid",
             }:
                 code = "storage_error"
             raise RuntimeError(code) from None
@@ -207,6 +212,28 @@ class Core(CorePluginBase):
         if not self.policy.adapter.actor()[1]:
             raise ValueError("forbidden")
         return dict(self.policy.config)
+
+    @export(5)
+    def create_download_ticket(
+        self, api_version, torrent_id, record_id, kind, file_id=1
+    ):
+        self._version(api_version)
+        return self._public(
+            self.server.downloads.create(
+                torrent_id, record_id, self.policy.adapter.actor(), kind, file_id
+            )
+        )
+
+    @export(5)
+    def get_download_info(
+        self, api_version, torrent_id, record_id, offset=0, native_index=None
+    ):
+        self._version(api_version)
+        return self._public(
+            self.server.downloads.info(
+                torrent_id, record_id, self.policy.adapter.actor(), offset, native_index
+            )
+        )
 
     @export(10)
     def set_config(self, api_version, changes):
@@ -280,6 +307,13 @@ class Core(CorePluginBase):
                 else None
             ),
             "streaming": self.server.streams.diagnostics() if self.server else {},
+            "downloads": {
+                "tickets": len(self.server.downloads.tickets),
+                "preflights": self.server.downloads.preflights,
+                "metadata_bytes_reserved": self.server.downloads.metadata_reserved,
+            }
+            if self.server
+            else {},
             "http_error": self.server.error if self.server else None,
         }
 

@@ -128,6 +128,14 @@ class PolicyAdapter:
             or (not write and torrent.options["shared"])
         )
 
+    def download_access(self, tid, actor):
+        account = component.get("AuthManager")._AuthManager__auth.get(actor[0])
+        if account is None or account.authlevel < 5:
+            return False
+        # A ticket never gains newly granted privileges, and revoked admin
+        # access cannot survive in the captured RPC actor.
+        return self.access(tid, (actor[0], actor[1] and account.authlevel >= 10))
+
     def payload_plan(self):
         result = []
         total = 0
@@ -135,7 +143,7 @@ class PolicyAdapter:
             info = torrent.handle.torrent_file()
             if info is None:
                 raise RuntimeError("metadata_pending")
-            if torrent.moving_storage_dest_path or torrent.forcing_recheck:
+            if torrent.handle.status().moving_storage or torrent.forcing_recheck:
                 raise RuntimeError("operation_conflict")
             files = info.files()
             total += files.num_files()
@@ -156,7 +164,7 @@ class PolicyAdapter:
             info = torrent.handle.torrent_file()
             if info is None:
                 raise RuntimeError("metadata_pending")
-            if torrent.moving_storage_dest_path or torrent.forcing_recheck:
+            if torrent.handle.status().moving_storage or torrent.forcing_recheck:
                 raise RuntimeError("operation_conflict")
             files = info.files()
             total += files.num_files() + 1

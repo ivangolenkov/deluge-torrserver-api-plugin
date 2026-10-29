@@ -80,7 +80,15 @@ class Streams:
         self.last_error = ""
         self.lag = 0
         self.due = reactor.seconds()
+        adapter.invalidate = self._invalidated
         adapter.register(self._read_alert)
+
+    def _invalidated(self, alert):
+        # Event/alert delivery is synchronous. Match the native handle, never
+        # cancel a replacement simply because it has the same torrent hash.
+        for session in tuple(self.sessions.values()):
+            if self.adapter.matches(session.native, alert):
+                self.stop(session, "operation_conflict")
 
     @defer.inlineCallbacks
     def open(
@@ -94,12 +102,14 @@ class Streams:
         kind="playback",
         cancel=None,
         public=True,
+        reservation=None,
+        opened=None,
     ):
         if self.closed or len(self.sessions) >= self.MAX_SESSIONS:
             raise RuntimeError("transfer_limit")
         if getattr(self.policy, "research_active", lambda: False)():
             raise RuntimeError("transfer_limit")
-        native, layout, file, path = self.adapter.open(tid, file_id)
+        native, layout, file, path = opened or self.adapter.open(tid, file_id)
         if not 0 <= start <= stop <= file.size:
             raise ValueError("invalid_range")
         if (
@@ -122,9 +132,15 @@ class Streams:
             cancel,
         )
         session.started = self.reactor.seconds()
-        lease = yield self.policy.acquire_transfer(
-            tid, rid, actor, kind, lambda reason: self.stop(session, reason)
-        )
+        if reservation is None:
+            lease = yield self.policy.acquire_transfer(
+                tid, rid, actor, kind, lambda reason: self.stop(session, reason)
+            )
+        else:
+            lease = yield self.policy.activate_ticket(
+                tid, rid, actor, reservation, kind
+            )
+            lease.cancel = lambda reason: self.stop(session, reason)
         session.lease = lease
         try:
             if (
@@ -191,6 +207,8 @@ class Streams:
         for session in tuple(self.sessions.values()):
             try:
                 self.adapter.check(session)
+                if session.kind in {"file", "zip"}:
+                    continue  # Downloads never schedule missing payload.
                 if self.adapter.missing_reason(session):
                     continue
                 ahead = self.policy.config["stream_window_mib"] * 1024**2
@@ -232,6 +250,8 @@ class Streams:
         try:
             self.adapter.check(session)
             if not self.adapter.have(session, piece):
+                if session.kind in {"file", "zip"}:
+                    raise RuntimeError("file_not_ready")
                 reason = self.adapter.missing_reason(session)
                 if reason:
                     raise RuntimeError(reason)
@@ -306,13 +326,18 @@ class Streams:
             self.reserved -= job["orphan_charge"]
             if not job["waiters"]:
                 continue  # Do not copy an orphaned native payload into Python.
-            data = self.adapter.alert_data(alert)
+            read_error = "piece_read_error"
+            try:
+                data = self.adapter.alert_data(alert)
+            except RuntimeError as exc:
+                data = None
+                read_error = safe_reason(exc)
             for session, d, charge in tuple(job["waiters"]):
                 session.pending = None
                 try:
                     self.adapter.check(session)
                     if data is None or len(data) * 2 + self.HTTP_OVERHEAD != charge:
-                        raise RuntimeError("piece_read_error")
+                        raise RuntimeError(read_error)
                     if not self.adapter.have(session, key[2]):
                         raise RuntimeError("piece_not_ready")
                 except (RuntimeError, ValueError, KeyError) as exc:

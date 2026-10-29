@@ -22,3 +22,5 @@ zope.interface==8.7
 jsonschema-specifications==2024.10.1
 referencing==0.36.2
 rpds-py==0.23.1
+pyee==13.0.0
+greenlet==3.2.4

@@ -95,6 +95,9 @@ class WebUI(WebPluginBase):
             "transfer_limit",
             "buffer_limit",
             "piece_read_error",
+            "file_not_ready",
+            "torrent_not_ready",
+            "timeout",
             "stream_error",
             "cancel_error",
         }

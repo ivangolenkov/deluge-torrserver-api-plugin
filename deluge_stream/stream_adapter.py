@@ -2,7 +2,10 @@
 
 from pathlib import PurePosixPath
 
+from twisted.internet import defer, task
+
 from .adapter import snapshot_layout
+from .layout import FileSpan, Layout
 
 
 class NativeStreams:
@@ -10,12 +13,27 @@ class NativeStreams:
         self.policy = policy
         self.manager = policy.adapter.manager
         self.alerts = policy.adapter.alerts
+        self.invalidate = None
 
     def register(self, handler):
         self.alerts.register_handler("read_piece_alert", handler)
+        self.alerts.register_handler("state_changed_alert", self._state_changed)
+        self.alerts.register_handler("storage_moved_alert", self._paths_changed)
+        self.alerts.register_handler("file_renamed_alert", self._paths_changed)
 
     def unregister(self, handler):
         self.alerts.deregister_handler(handler)
+        self.alerts.deregister_handler(self._state_changed)
+        self.alerts.deregister_handler(self._paths_changed)
+        self.invalidate = None
+
+    def _state_changed(self, alert):
+        if alert.state in (1, 7) and self.invalidate is not None:
+            self.invalidate(alert)
+
+    def _paths_changed(self, alert):
+        if self.invalidate is not None:
+            self.invalidate(alert)
 
     @staticmethod
     def alert_piece(alert):
@@ -23,7 +41,10 @@ class NativeStreams:
 
     @staticmethod
     def alert_data(alert):
-        return bytes(alert.buffer) if alert.error.value() == 0 else None
+        error = alert.error.value()
+        if error:
+            raise RuntimeError("disk_full" if error == 28 else "storage_error")
+        return bytes(alert.buffer)
 
     def open(self, tid, file_id):
         torrent = self.manager.torrents.get(tid)
@@ -47,6 +68,47 @@ class NativeStreams:
             raise ValueError("unsafe_paths")
         return torrent, layout, file, torrent.handle.save_path()
 
+    @defer.inlineCallbacks
+    def download_open(self, tid, file_id, reactor):
+        torrent = self.manager.torrents.get(tid)
+        if torrent is None:
+            raise ValueError("torrent_not_found")
+        info = torrent.handle.torrent_file()
+        if info is None:
+            raise RuntimeError("metadata_pending")
+        storage = info.files()
+        if storage.num_files() > 100000:
+            raise ValueError("path_check_limit")
+        files, path_bytes = [], 0
+        for index in range(storage.num_files()):
+            path = storage.file_path(index)
+            path_bytes += len(path.encode())
+            if path_bytes > 2 * 1024**2:
+                raise ValueError("path_check_limit")
+            flags = storage.file_flags(index)
+            if flags & storage.flag_symlink:
+                raise ValueError("unsafe_paths")
+            files.append(
+                FileSpan(
+                    index,
+                    path,
+                    storage.file_offset(index),
+                    storage.file_size(index),
+                    bool(flags & storage.flag_pad_file),
+                )
+            )
+            if index % 256 == 255:
+                yield task.deferLater(reactor, 0, lambda: None)
+        layout = Layout(
+            info.piece_length(), info.num_pieces(), tuple(files), frozenset()
+        )
+        file = layout.payload().get(file_id)
+        if file is None:
+            raise ValueError("invalid_file_id")
+        if self.manager.torrents.get(tid) is not torrent:
+            raise RuntimeError("operation_conflict")
+        return torrent, layout, file, torrent.handle.save_path()
+
     def check(self, session):
         s = self.policy
         torrent = self.manager.torrents.get(session.tid)
@@ -57,6 +119,7 @@ class NativeStreams:
             or torrent is not session.native
             or row is None
             or row["record_id"] != session.rid
+            or not s.adapter.access(session.tid, session.actor)
         ):
             raise RuntimeError("operation_conflict")
         if session.public and (
@@ -66,10 +129,14 @@ class NativeStreams:
             or not s.adapter.access(session.tid, session.actor)
         ):
             raise RuntimeError("torrent_not_found")
+        if not session.public and not s.adapter.download_access(
+            session.tid, session.actor
+        ):
+            raise RuntimeError("torrent_not_found")
         handle = torrent.handle
         status = handle.status()
         if (
-            torrent.moving_storage_dest_path
+            status.moving_storage
             or torrent.forcing_recheck
             or status.state in (1, 7)
             or handle.save_path() != session.path

@@ -7,7 +7,12 @@ The standard zipfile reader then validates the streamed output and its CRC.
 import bisect
 import io
 import json
+import sys
 import zipfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from deluge_stream.archive import Archive  # noqa: E402
 
 
 class VirtualArchive:
@@ -79,15 +84,19 @@ def probe():
     chunk = bytes(1024 * 1024)
     large_size = 2**32 + 123
     entries = 65536
-    with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED) as archive:
-        with archive.open("каталог/large.bin", "w", force_zip64=True) as entry:
-            remaining = large_size
-            while remaining:
-                block = chunk[: min(len(chunk), remaining)]
-                entry.write(block)
-                remaining -= len(block)
-        for index in range(entries):
-            archive.writestr(f"empty/{index}.bin", b"")
+    writer = Archive()
+    sink.write(writer.begin("каталог/large.bin", large_size))
+    remaining = large_size
+    while remaining:
+        block = chunk[: min(len(chunk), remaining)]
+        sink.write(writer.data(block))
+        remaining -= len(block)
+    sink.write(writer.end())
+    for index in range(entries):
+        sink.write(writer.begin(f"empty/{index}.bin", 0))
+        sink.write(writer.end())
+    for block in writer.finish():
+        sink.write(block)
     assert sink.size > 2**32
     assert sink.retained < 16 * 1024 * 1024
     assert sink.max_write <= len(chunk)
@@ -112,11 +121,11 @@ def probe():
     cancelled = CancelledSink()
     reads = 0
     try:
-        with zipfile.ZipFile(cancelled, "w") as archive:
-            with archive.open("cancel.bin", "w", force_zip64=True) as entry:
-                for _ in range(4096):
-                    reads += 1
-                    entry.write(chunk)
+        writer = Archive()
+        cancelled.write(writer.begin("cancel.bin", 4096 * len(chunk)))
+        for _ in range(4096):
+            reads += 1
+            cancelled.write(writer.data(chunk))
     except BrokenPipeError:
         pass
     else:

@@ -29,6 +29,7 @@ class Lease:
         self.token = str(uuid.uuid4())
         self.closed = False
         self.timer = None
+        self.issued = False
 
     def release(self):
         return self.registry.release(self)
@@ -40,6 +41,13 @@ class Lease:
             return False
         self.registry._renew(self)
         return True
+
+    def issue(self):
+        """Start the ticket's TTL once, after bounded readiness preflight."""
+        if self.closed or self.kind != "ticket" or self.issued:
+            raise ValueError("invalid_reservation")
+        self.issued = True
+        self.registry._renew(self)
 
 
 class TransferRegistry:
