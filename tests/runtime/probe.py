@@ -13,7 +13,7 @@ from pathlib import Path
 
 import deluge.component as component
 import deluge.configmanager
-import libtorrent as lt
+from deluge._libtorrent import lt
 from deluge.core.daemon import Daemon
 from twisted.internet import defer, task, threads
 
@@ -325,13 +325,16 @@ def main(reactor):
             for _ in range(20):
                 assert (yield manager.enable_plugin("Stream"))
                 plugin = manager.plugins["Stream"].plugin
-                assert (
-                    str(plugins) in plugin.__class__.__module__
-                    or str(plugins)
-                    in __import__(
+                loaded = Path(
+                    __import__(
                         plugin.__class__.__module__, fromlist=["__file__"]
                     ).__file__
                 )
+                # Legacy Deluge imports from the egg; modern Deluge extracts it
+                # into this isolated profile's plugin_cache, not the checkout.
+                assert loaded.is_relative_to(plugins) or loaded.is_relative_to(
+                    profile / "plugin_cache"
+                ), loaded
                 assert "stream.probe_info" in daemon.rpcserver.get_method_list()
                 assert plugin.probe_info()["port"] > 0
                 assert (yield manager.disable_plugin("Stream"))

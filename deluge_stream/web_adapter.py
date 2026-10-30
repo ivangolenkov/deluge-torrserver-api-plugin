@@ -2,11 +2,16 @@
 
 import deluge.component as component
 from deluge.ui.client import client
-from pkg_resources import resource_filename
+
+from .resources import release_script as release_script
+from .resources import script_path as script_path
 
 
-def script_path():
-    return resource_filename("deluge_stream", "data/stream.js")
+def initialize(owner):
+    # Modern WebPluginBase normalizes to "WebPlugin.stream", but the Web plugin
+    # manager still looks up the metadata display name "WebPlugin.Stream".
+    # Register only our component explicitly; do not patch Deluge's registries.
+    component.Component.__init__(owner, "WebPlugin.Stream", owner.update_interval)
 
 
 def connection_token():

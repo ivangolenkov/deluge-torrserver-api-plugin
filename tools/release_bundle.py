@@ -4,24 +4,36 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
 try:
-    from tools.version import ROOT, VERSION, egg_name, valid_version, version_source
+    from tools.version import (
+        PYTHON_VERSION,
+        ROOT,
+        RUNTIME_PROFILES,
+        VERSION,
+        egg_name,
+        python_requires,
+        valid_version,
+        version_source,
+    )
 except ModuleNotFoundError:
-    from version import ROOT, VERSION, egg_name, valid_version, version_source
+    from version import (
+        PYTHON_VERSION,
+        ROOT,
+        RUNTIME_PROFILES,
+        VERSION,
+        egg_name,
+        python_requires,
+        valid_version,
+        version_source,
+    )
 
-RUNTIME = {
-    "os": "Linux",
-    "architectures": ["x86_64", "aarch64"],
-    "python": "3.11",
-    "Deluge": "2.2.0",
-    "libtorrent": "2.0.8.0",
-    "Twisted": "24.11.0",
-}
+RUNTIME = RUNTIME_PROFILES.get(PYTHON_VERSION)
 
 
 def digest(path):
@@ -61,7 +73,7 @@ def provenance(root):
     }
 
 
-def check_egg(path):
+def check_egg(path, python=None):
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
         if len(names) != len(set(names)):
@@ -89,6 +101,10 @@ def check_egg(path):
         info = BytesParser().parsebytes(archive.read("EGG-INFO/PKG-INFO"))
         if info["Name"] != "Stream" or info["Version"] != VERSION:
             raise ValueError("artifact version/name mismatch")
+        if {item.strip() for item in (info["Requires-Python"] or "").split(",")} != set(
+            python_requires(python).split(",")
+        ):
+            raise ValueError("artifact Python metadata mismatch")
         entries = archive.read("EGG-INFO/entry_points.txt").decode()
         for entry in ("deluge.plugin.core", "deluge.plugin.web"):
             if f"[{entry}]" not in entries:
@@ -127,8 +143,8 @@ def create(dist, root=ROOT):
     )
     notes = (
         f"# Stream {VERSION}: local delivery candidate\n\n"
-        "Install the same Python 3.11 egg in core and separate Web UI profiles.\n"
-        "Runtime contract: Linux, Deluge 2.2.0, libtorrent 2.0.8.0, Twisted 24.11.0.\n"
+        f"Choose the py{PYTHON_VERSION} egg for this Python minor in core/Web UI.\n"
+        f"Runtime contract: {json.dumps(RUNTIME, sort_keys=True)}.\n"
         "Unverified Lampa/Num and target HDD acceptance is documented, "
         "not a publication prerequisite.\n"
         "Back up the complete stopped Deluge profile and downloads before updating.\n"
@@ -145,13 +161,90 @@ def create(dist, root=ROOT):
     return manifest
 
 
+def artifact_entries(manifest):
+    if manifest["schema"] == 1:
+        return [
+            {
+                key: manifest[key]
+                for key in ("artifact", "artifact_sha256", "runtime_contract")
+            }
+        ]
+    if manifest["schema"] == 2:
+        entries = manifest["artifacts"]
+        minors = [entry["runtime_contract"].get("python") for entry in entries]
+        if any(not isinstance(minor, str) for minor in minors) or sorted(
+            minors
+        ) != sorted(RUNTIME_PROFILES):
+            raise ValueError("incomplete/duplicate Python artifact matrix")
+        return entries
+    raise ValueError("manifest version/schema mismatch")
+
+
+def combine(dist, inputs, root=ROOT):
+    if not inputs:
+        raise ValueError("no input bundles")
+    manifests = [verify(path, root=root) for path in inputs]
+    if any(manifest["schema"] != 1 for manifest in manifests):
+        raise ValueError("combine requires single-runtime bundles")
+    manifest = {
+        "schema": 2,
+        "version": VERSION,
+        "artifacts": sorted(
+            [entry for item in manifests for entry in artifact_entries(item)],
+            key=lambda entry: entry["artifact"],
+        ),
+        "source": manifests[0]["source"],
+        "license_sha256": manifests[0]["license_sha256"],
+        "acceptance": "Not certified by this manifest; see phase reports",
+    }
+    artifact_entries(manifest)  # Require exactly one artifact per supported minor.
+    if any(
+        item["source"] != manifest["source"]
+        or item["license_sha256"] != manifest["license_sha256"]
+        for item in manifests
+    ):
+        raise ValueError("bundle source/license mismatch")
+    dist.mkdir(parents=True, exist_ok=True)
+    files = ["compatibility.json", "RELEASE-NOTES.md"]
+    for directory, item in zip(inputs, manifests, strict=True):
+        name = item["artifact"]
+        shutil.copy2(directory / name, dist / name)
+        files.append(name)
+    if manifest["license_sha256"] is not None:
+        shutil.copy2(inputs[0] / "LICENSE", dist / "LICENSE")
+        files.append("LICENSE")
+    elif (dist / "LICENSE").exists():
+        raise ValueError("stale LICENSE in dist; use a fresh output directory")
+    (dist / "compatibility.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+    (dist / "RELEASE-NOTES.md").write_text(
+        f"# Stream {VERSION}\n\nChoose the egg matching the Python minor of each "
+        "Deluge core/Web UI process: py3.11 or py3.14. Do not rename artifacts.\n"
+        "Runtime contracts and checksums are in compatibility.json and SHA256SUMS.\n"
+        "Unverified client/HDD acceptance remains documented, not certified.\n"
+        "Back up stopped profiles and payload before updating; explicit plugin "
+        "disable resets instance policy/publication/metadata/viewed.\n"
+    )
+    (dist / "SHA256SUMS").write_text(
+        "".join(f"{digest(dist / name)}  {name}\n" for name in sorted(files))
+    )
+    return manifest
+
+
 def verify(dist, strict=False, tag=None, root=ROOT):
     manifest = json.loads((dist / "compatibility.json").read_text())
-    if manifest["schema"] != 1 or manifest["version"] != VERSION:
+    if manifest["schema"] not in (1, 2) or manifest["version"] != VERSION:
         raise ValueError("manifest version/schema mismatch")
-    if manifest["artifact"] != egg_name() or manifest["runtime_contract"] != RUNTIME:
-        raise ValueError("manifest artifact/runtime mismatch")
-    expected = {egg_name(), "compatibility.json", "RELEASE-NOTES.md"}
+    entries = artifact_entries(manifest)
+    expected = {"compatibility.json", "RELEASE-NOTES.md"}
+    for entry in entries:
+        python = entry["runtime_contract"].get("python")
+        if entry["artifact"] != egg_name(python) or entry[
+            "runtime_contract"
+        ] != RUNTIME_PROFILES.get(python):
+            raise ValueError("manifest artifact/runtime mismatch")
+        expected.add(entry["artifact"])
     if manifest["license_sha256"] is not None:
         expected.add("LICENSE")
     seen = set()
@@ -167,9 +260,11 @@ def verify(dist, strict=False, tag=None, root=ROOT):
             raise ValueError(f"checksum mismatch: {name}")
     if seen != expected:
         raise ValueError("incomplete checksum set")
-    if digest(dist / egg_name()) != manifest["artifact_sha256"]:
-        raise ValueError("manifest artifact checksum mismatch")
-    check_egg(dist / egg_name())
+    for entry in entries:
+        artifact = dist / entry["artifact"]
+        if digest(artifact) != entry["artifact_sha256"]:
+            raise ValueError("manifest artifact checksum mismatch")
+        check_egg(artifact, entry["runtime_contract"]["python"])
     if manifest["source"] != provenance(root):
         raise ValueError("source provenance changed; recreate bundle")
     if manifest["license_sha256"] is not None and (
@@ -189,11 +284,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--create", action="store_true")
+    parser.add_argument("--combine", type=Path, nargs="+")
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--tag")
     args = parser.parse_args()
     try:
-        if args.create:
+        if args.create and args.combine:
+            parser.error("choose --create or --combine")
+        if args.combine:
+            combine(args.dist, args.combine)
+        elif args.create:
             create(args.dist)
         verify(args.dist, strict=args.strict, tag=args.tag)
     except (ValueError, OSError, KeyError, zipfile.BadZipFile) as exc:

@@ -8,9 +8,9 @@ import tempfile
 from pathlib import Path
 
 try:
-    from tools.release_bundle import VERSION, digest, verify
+    from tools.release_bundle import VERSION, artifact_entries, digest, verify
 except ModuleNotFoundError:
-    from release_bundle import VERSION, digest, verify
+    from release_bundle import VERSION, artifact_entries, digest, verify
 
 
 def asset_plan(local, existing, draft):
@@ -42,12 +42,13 @@ def main():
     # Listing distinguishes absence from auth/network failure (which must abort).
     releases = json.loads(gh("release", "list", "--limit", "1000", "--json", "tagName"))
     exists = any(release["tagName"] == args.tag for release in releases)
+    artifacts = {entry["artifact"] for entry in artifact_entries(manifest)}
     local = {
         path.name: digest(path)
         for path in args.dist.iterdir()
         if path.name
-        in {
-            manifest["artifact"],
+        in artifacts
+        | {
             "compatibility.json",
             "RELEASE-NOTES.md",
             "SHA256SUMS",

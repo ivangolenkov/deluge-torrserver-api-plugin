@@ -15,7 +15,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-import libtorrent as lt
+from deluge._libtorrent import lt
 from playwright.sync_api import sync_playwright
 
 

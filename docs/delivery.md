@@ -12,10 +12,13 @@ Lampa/Num/ПК-HDD-приёмку.
 `tools/version.py` разрешает его в версию пакета без `v`; setup генерирует
 `_version.py` только в build output, не меняя исходники. Без тега используется
 `0.0.0.dev0` из исходного `_version.py`; `API_VERSION` остаётся отдельным контрактом.
-Подтверждённый контракт:
-Linux, Python 3.11, Deluge 2.2.0, libtorrent 2.0.8.0, Twisted 24.11.0.
-Один pure-Python egg используется для x86_64/ARM64 и для core/web. Проверка
-архитектур означает отдельные запуски, а не переименование файла.
+Runtime-профили:
+- Python 3.11, Linux x86_64/ARM64, Deluge 2.2.0, libtorrent 2.0.8.0, Twisted 24.11.0.
+- Python 3.14, Arch Linux x86_64, Deluge 2.2.0, libtorrent 2.0.14.0, Twisted 26.10.0.
+
+Отдельный pure-Python egg собирается для каждого minor Python. Для каждого
+core/web процесса выбирайте его Python artifact одной версии плагина.
+Проверка архитектур означает отдельные запуски, а не переименование файла.
 
 В подготовленном Linux-окружении из [матрицы](compatibility.md):
 
@@ -24,7 +27,7 @@ make check
 make candidate-check
 ```
 
-Дополнительно нужен `git`, доступ к metadata текущего checkout и Python 3.11.
+Дополнительно нужен `git`, доступ к metadata текущего checkout и выбранный Python.
 `candidate-check` собирает egg и проверяет установленный artifact в одноразовых
 профилях настоящих deluged/deluge-web. Затем создаёт `compatibility.json`,
 `SHA256SUMS`, `RELEASE-NOTES.md` в `DIST_DIR` (по умолчанию `dist`). Непустой
@@ -32,6 +35,20 @@ make candidate-check
 Manifest содержит commit, dirty flag и fingerprint текущих неигнорируемых файлов,
 SHA-256 egg и узкий runtime-контракт, **не сертификат приёмки**.
 Изменили исходники после сборки — пересоздайте комплект.
+
+CI хранит single-runtime bundles отдельно. Release job объединяет проверенные
+x86_64/py3.11 и x86_64/py3.14 bundles одного commit/source fingerprint:
+
+```sh
+make combine-bundles
+```
+
+Результат — оба egg, общий `compatibility.json` schema 2 и `SHA256SUMS`.
+Пути задаются через `BUNDLE_PY311` и `BUNDLE_PY314`; цель использует только stdlib Python.
+Отсутствующая/дублированная Python-сборка, разные исходники и повреждённый artifact
+отклоняются. Объединение не пересобирает egg. Smoke в verify выполняется отдельно
+в каждом Python runtime; publisher загружает оба проверенных artifact, без clobber.
+Schema 1 по-прежнему используется для локальных single-runtime candidates.
 
 При чтении provenance Git получает process-local `safe.directory` только для
 абсолютного пути выбранного checkout. Это поддерживает bind mount `/work` с UID
@@ -64,8 +81,8 @@ SHA-256 egg и узкий runtime-контракт, **не сертификат 
 - CI передаёт тот же контекст в check/verify Docker containers и product build
   ARG; snapshots упаковочного теста получают его явно, несмотря на отсутствие Git.
 
-Имя файла: `Stream-0.1.3-py3.11.egg` для `v0.1.3`,
-`Stream-0.0.0.dev0-py3.11.egg` для dev. Старые artifacts не переименовывать:
+Имя файла: `Stream-0.1.3-py3.11.egg` или `Stream-0.1.3-py3.14.egg` для `v0.1.3`,
+`Stream-0.0.0.dev0-py3.11.egg` / `...-py3.14.egg` для dev. Старые artifacts не переименовывать:
 нужна новая сборка с согласованными metadata и внутренней версией. Для выпуска
 выбирается один новый тег на нужном commit; редактировать `_version.py` не нужно.
 
@@ -224,8 +241,9 @@ split/Compose проверки снаружи контейнера. Workflow art
 содержат candidate и логи; это не GitHub Release.
 
 `release.yml`: push тега `vX.Y.Z` либо ручная проверка текущего ref **без публикации**.
-Использует checks того же commit, скачивает проверенный x86_64 комплект и выполняет
-`release-verify` без пересборки. SHA pins checkout v7.0.1, upload v7.0.2 и download
+Использует checks того же commit, скачивает проверенные x86_64 комплекты Python
+3.11/3.14, объединяет их и выполняет `release-verify` в обоих runtime без пересборки.
+SHA pins checkout v7.0.1, upload v7.0.2 и download
 v8.0.2 проверены по public GitHub API. Доступность runners для этого репозитория
 и сами hosted runs ещё не проверены. Форматы тегов: `vX.Y.Z`, либо PEP 440
 `vX.Y.ZaN`, `vX.Y.ZbN`, `vX.Y.ZrcN` (например `v0.0.2rc1`); prerelease помечается

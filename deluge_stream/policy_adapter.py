@@ -8,23 +8,24 @@ import uuid
 from pathlib import Path
 
 import deluge.component as component
-import libtorrent as lt
 import twisted
+from deluge._libtorrent import lt
 from deluge.common import get_version
 from deluge.configmanager import get_config_dir
 from twisted.internet import defer
 
 from .adapter import hash_aliases
+from .runtime_profiles import supported_runtime
 
 
 def check_runtime():
-    if (
-        platform.system() != "Linux"
-        or sys.version_info[:2] != (3, 11)
-        or get_version() != "2.2.0"
-        or lt.__version__ != "2.0.8.0"
-        or twisted.__version__ != "24.11.0"
-        or sqlite3.sqlite_version_info < (3, 40, 1)
+    if not supported_runtime(
+        platform.system(),
+        f"{sys.version_info.major}.{sys.version_info.minor}",
+        get_version(),
+        lt.__version__,
+        twisted.__version__,
+        sqlite3.sqlite_version_info,
     ):
         raise RuntimeError("incompatible_runtime")
 

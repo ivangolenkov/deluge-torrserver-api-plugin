@@ -45,6 +45,12 @@ def test_workflow_guards_and_pins():
         assert expected in text
 
 
+def test_python314_ci_uses_its_own_native_runtime():
+    image, check = commands(Path("/checkout"), "linux/amd64", "test:314", python="3.14")
+    assert image[1][image[1].index("-f") + 1] == "tools/runtime314.Dockerfile"
+    assert check[1][-4:] == ["test:314", "make", "check", "VENV=/opt/venv"]
+
+
 def test_release_workflow_cannot_publish_from_manual_or_pr_runs():
     text = (
         Path(__file__).resolve().parents[2] / ".github/workflows/release.yml"

@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 import deluge.component as component
-import libtorrent as lt
+from deluge._libtorrent import lt
 from twisted.internet import defer, task, threads
 
 spec = importlib.util.spec_from_file_location(

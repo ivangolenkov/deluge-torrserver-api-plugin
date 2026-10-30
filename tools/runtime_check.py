@@ -17,7 +17,7 @@ parser.add_argument("--dist", required=True)
 parser.add_argument("--profile-root", default="")
 args = parser.parse_args()
 try:
-    import libtorrent
+    from deluge._libtorrent import lt as libtorrent
 
     versions = {
         name: importlib.metadata.version(name)

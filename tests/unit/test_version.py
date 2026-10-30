@@ -110,13 +110,15 @@ def test_build_injects_tag_without_modifying_source_and_can_return_to_dev(tmp_pa
             timeout=60,
         )
         assert result.returncode == 0, result.stdout + result.stderr
-        with zipfile.ZipFile(tmp_path / f"dist/Stream-{expected}-py3.11.egg") as egg:
+        with zipfile.ZipFile(
+            tmp_path / f"dist/Stream-{expected}-py{version.PYTHON_VERSION}.egg"
+        ) as egg:
             assert f"Version: {expected}\n" in egg.read("EGG-INFO/PKG-INFO").decode()
             values = {}
             exec(egg.read("deluge_stream/_version.py"), values)
             assert values["__version__"] == expected and values["API_VERSION"] == 1
         assert source.read_bytes() == original
-        artifact = tmp_path / f"dist/Stream-{expected}-py3.11.egg"
+        artifact = tmp_path / f"dist/Stream-{expected}-py{version.PYTHON_VERSION}.egg"
         checked_bytes = artifact.read_bytes()
         verified = subprocess.run(
             [

@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import deluge.component as component
-import libtorrent as lt
+from deluge._libtorrent import lt
 from deluge.core.authmanager import Account
 from twisted.internet import defer, task, threads
 

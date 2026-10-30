@@ -29,6 +29,7 @@ def main(reactor):
         patch("deluge_stream.webui.adapter.connection_token", lambda: connection),
     ):
         web.enable()
+        assert Path(web.scripts[0]).is_file()
         assert web.get_web_status()["reason"] == "core_unavailable"
         remote.connected = lambda: True
         replies = []
@@ -77,7 +78,7 @@ def main(reactor):
         assert (yield waiting)["reason"] == "core_unavailable"
         web.disable()
         assert web.get_web_status()["reason"] == "web_disabled"
-    assert Path(WebUI.scripts[0]).is_file()
+    assert web.scripts == []
     print(
         "WEB CONTRACT: offline/error/version, stale enable/connection "
         "and reply whitelist passed"

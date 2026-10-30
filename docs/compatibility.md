@@ -37,9 +37,33 @@ x86_64. Это начальная web-диагностика, не полный 
 Итог фазы 1: SQLite подключена к Core, 132 unit и 70 persistence прошли на обеих
 архитектурах, как и реальные policy RPC, owner/admin/shared, native restart,
 SIGKILL и confirmation gate. Явное отключение плагина сбрасывает instance bindings;
-штатный restart сохраняет их. Hardlinks для политики не требуются. Runtime gate
-не допускает другой Deluge/libtorrent/Twisted, не-Linux и Python вне 3.11;
+штатный restart сохраняет их. Hardlinks для политики не требуются. Исторический
+runtime gate фазы 1 допускал только указанный профиль 3.11;
 SQLite требуется >=3.40.1. Матрица фактически проверенного окружения остаётся выше.
+
+## Дополнительный профиль Python 3.14
+
+По запросу владельца добавлен отдельный `py3.14.egg` для его Arch-окружения:
+Deluge 2.2.0, libtorrent 2.0.14.0, Twisted 26.10.0. Стенд x86_64 использует
+Python 3.14.8 и SQLite 3.54.0. Установка core/web и 20 enable/disable проверены
+в изолированном профиле; полный make check, Chromium и split core/web тоже прошли
+локально под эмуляцией x86_64. Подробные команды — в отчёте фазы 5.
+ARM64/3.14 и Python 3.12/3.13 не объявляются проверенными.
+
+`tools/runtime314.Dockerfile` использует Arch base index
+`e82623936fa1a69700b48e98b058df6eaab18b737c27473a7234a40fdecb9413`
+и snapshot репозиториев 2026-10-30. Dev requirements/constraints для 3.14
+разделены с прежним 3.11: pytest 8.4.2 и rpds-py 2026.9.1 имеют поддержку 3.14.
+Deluge в этом профиле сам поставляет binding как `deluge.libtorrent`; плагин
+использует штатный `deluge._libtorrent.lt`, не устанавливая второй binding.
+Web UI-ресурс читается без pkg_resources и работает с новым plugin_cache.
+У daemon/web процесса системный setuptools 84.2.1 без pkg_resources;
+setuptools 75.8.0 в `/opt/venv` используется только инструментами сборки.
+Реальные installed-процессы не требуют возврата устаревшего pkg_resources.
+
+Профили явно перечислены в `deluge_stream/runtime_profiles.py`; runtime guard
+проверяет точное сочетание Deluge/libtorrent/Twisted и минимум SQLite.
+Нельзя переименовать py3.11 egg в py3.14 и объявить его проверенным artifact.
 
 ## Воспроизведение из чистой копии
 

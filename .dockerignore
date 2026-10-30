@@ -6,9 +6,12 @@
 !docker/entrypoint.py
 !requirements-runtime.txt
 !requirements-dev.txt
+!requirements-dev314.txt
 !constraints.txt
+!constraints314.txt
 !tools/
 !tools/runtime.Dockerfile
+!tools/runtime314.Dockerfile
 !tools/version.py
 **/__pycache__
 **/*.py[cod]

@@ -16,20 +16,27 @@ concurrency:
 
 jobs:
   linux:
-    name: Linux ${{ matrix.arch }} / Python 3.11 (native)
+    name: Linux ${{ matrix.arch }} / Python ${{ matrix.python }} (native)
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x86_64
+            python: '3.11'
             runner: ubuntu-24.04
             platform: linux/amd64
           - arch: arm64
+            python: '3.11'
             runner: ubuntu-24.04-arm
             platform: linux/arm64
+          - arch: x86_64
+            python: '3.14'
+            runner: ubuntu-24.04
+            platform: linux/amd64
     runs-on: ${{ matrix.runner }}
     env:
       CI_PLATFORM: ${{ matrix.platform }}
+      CI_PYTHON: ${{ matrix.python }}
       STREAM_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
     timeout-minutes: 35
     steps:
@@ -42,12 +49,13 @@ jobs:
       - name: Separate core and Web UI filesystems
         run: make test-web-split
       - name: Product Compose and persistent recreation
+        if: matrix.python == '3.11'
         run: make docker-build test-docker
       - name: Test artifacts and logs (not a release)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: stream-linux-${{ matrix.arch }}
+          name: stream-linux-${{ matrix.arch }}-py${{ matrix.python }}
           path: |
             dist/
             build/ci/*.log

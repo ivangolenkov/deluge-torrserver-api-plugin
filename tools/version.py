@@ -5,10 +5,15 @@ import os
 import re
 import runpy
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEV_VERSION = runpy.run_path(str(ROOT / "deluge_stream/_version.py"))["__version__"]
+RUNTIME_PROFILES = runpy.run_path(str(ROOT / "deluge_stream/runtime_profiles.py"))[
+    "RUNTIME_PROFILES"
+]
+PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
 def valid_version(version):
@@ -74,14 +79,29 @@ def version_source():
     ).encode()
 
 
-def egg_name():
+def python_tag(python=None):
+    python = PYTHON_VERSION if python is None else python
+    if python not in RUNTIME_PROFILES:
+        raise ValueError(f"unsupported Python minor: {python}; use 3.11 or 3.14")
+    return f"py{python}"
+
+
+def egg_name(python=None):
     if not valid_version(VERSION) and VERSION != DEV_VERSION:
         raise ValueError("invalid resolved version")
-    return f"Stream-{VERSION}-py3.11.egg"
+    return f"Stream-{VERSION}-{python_tag(python)}.egg"
+
+
+def python_requires(python=None):
+    python = PYTHON_VERSION if python is None else python
+    python_tag(python)
+    major, minor = map(int, python.split("."))
+    return f">={python},<{major}.{minor + 1}"
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", action="store_true")
+    parser.add_argument("--egg-name", action="store_true")
     args = parser.parse_args()
-    print(RELEASE_TAG if args.tag else VERSION)
+    print(egg_name() if args.egg_name else RELEASE_TAG if args.tag else VERSION)

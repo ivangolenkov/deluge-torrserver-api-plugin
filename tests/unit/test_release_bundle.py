@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import zipfile
 
@@ -79,7 +80,9 @@ def delivery(tmp_path, monkeypatch):
     )
     with zipfile.ZipFile(dist / bundle.egg_name(), "w") as archive:
         archive.writestr(
-            "EGG-INFO/PKG-INFO", f"Name: Stream\nVersion: {bundle.VERSION}\n"
+            "EGG-INFO/PKG-INFO",
+            f"Name: Stream\nVersion: {bundle.VERSION}\n"
+            f"Requires-Python: {bundle.python_requires()}\n",
         )
         archive.writestr(
             "EGG-INFO/entry_points.txt", "[deluge.plugin.core]\n[deluge.plugin.web]\n"
@@ -196,3 +199,85 @@ def test_wrong_generated_runtime_version_is_rejected(delivery):
             archive.writestr(name, data)
     with pytest.raises(ValueError, match="stale/different packaged source"):
         bundle.check_egg(artifact)
+
+
+def test_wrong_python_minor_metadata_is_rejected(delivery):
+    _, dist = delivery
+    other = next(
+        minor for minor in bundle.RUNTIME_PROFILES if minor != bundle.PYTHON_VERSION
+    )
+    with pytest.raises(ValueError, match="Python metadata mismatch"):
+        bundle.check_egg(dist / bundle.egg_name(), other)
+
+
+@pytest.fixture
+def python_matrix(delivery, tmp_path):
+    root, first = delivery
+    second = tmp_path / "other-python"
+    shutil.copytree(first, second)
+    manifest = json.loads((second / "compatibility.json").read_text())
+    other = next(
+        minor
+        for minor in bundle.RUNTIME_PROFILES
+        if minor != manifest["runtime_contract"]["python"]
+    )
+    # Synthetic ZIP fixture only, not evidence that a renamed artifact installs.
+    (second / manifest["artifact"]).rename(second / bundle.egg_name(other))
+    manifest["artifact"] = bundle.egg_name(other)
+    artifact = second / manifest["artifact"]
+    with zipfile.ZipFile(artifact) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    entries["EGG-INFO/PKG-INFO"] = (
+        f"Name: Stream\nVersion: {bundle.VERSION}\n"
+        f"Requires-Python: {bundle.python_requires(other)}\n"
+    ).encode()
+    with zipfile.ZipFile(artifact, "w") as archive:
+        for name, value in entries.items():
+            archive.writestr(name, value)
+    manifest["artifact_sha256"] = bundle.digest(artifact)
+    manifest["runtime_contract"] = bundle.RUNTIME_PROFILES[other]
+    (second / "compatibility.json").write_text(json.dumps(manifest))
+    names = [manifest["artifact"], "compatibility.json", "RELEASE-NOTES.md"]
+    (second / "SHA256SUMS").write_text(
+        "".join(f"{bundle.digest(second / name)}  {name}\n" for name in names)
+    )
+    return root, first, second, tmp_path / "combined"
+
+
+def test_two_python_bundles_are_verified_and_combined(python_matrix):
+    root, first, second, dist = python_matrix
+    bundle.combine(dist, [first, second], root)
+    manifest = bundle.verify(dist, strict=True, root=root)
+    assert manifest["schema"] == 2
+    assert {entry["artifact"] for entry in bundle.artifact_entries(manifest)} == {
+        bundle.egg_name("3.11"),
+        bundle.egg_name("3.14"),
+    }
+
+
+def test_combining_does_not_require_a_supported_host_python(python_matrix, monkeypatch):
+    from tools import version
+
+    root, first, second, dist = python_matrix
+    # GitHub's verification host may use 3.12; only Docker smokes need 3.11/3.14.
+    monkeypatch.setattr(version, "PYTHON_VERSION", "3.12")
+    monkeypatch.setattr(bundle, "PYTHON_VERSION", "3.12")
+    monkeypatch.setattr(bundle, "RUNTIME", None)
+    bundle.combine(dist, [first, second], root)
+    assert bundle.verify(dist, strict=True, root=root)["schema"] == 2
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_incomplete_or_duplicate_python_matrix_is_rejected(python_matrix, duplicate):
+    root, first, _, dist = python_matrix
+    with pytest.raises(ValueError, match="Python artifact matrix"):
+        bundle.combine(dist, [first, first] if duplicate else [first], root)
+
+
+def test_tampered_python314_artifact_is_rejected(python_matrix):
+    root, first, second, dist = python_matrix
+    bundle.combine(dist, [first, second], root)
+    with (dist / bundle.egg_name("3.14")).open("ab") as stream:
+        stream.write(b"changed")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        bundle.verify(dist, strict=True, root=root)

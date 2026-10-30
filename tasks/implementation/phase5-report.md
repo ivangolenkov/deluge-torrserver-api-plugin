@@ -19,7 +19,8 @@
 ## Реализовано
 
 - Версия egg и runtime вынесена в один `_version.py`, описание пакета актуализировано,
-  Python requirement ограничен подтверждённым 3.11. Make/runtime/split runner
+  Python requirement соответствует minor artifact (3.11 или 3.14; расширение
+  описано в конце отчёта). Make/runtime/split runner
   используют ту же версию, не независимые hardcoded имена.
 - `candidate-check`: installed-artifact smoke, проверка ZIP/entrypoints/web resource,
   комплект egg + compatibility.json + SHA256SUMS + RELEASE-NOTES.md. LICENSE
@@ -708,3 +709,113 @@ A01/A24/A25 и остальные A01–A26 повторены только в �
 не повторялась: payload/QoS код не менялся. Фаза 5 остаётся в работе. Для проверки
 исправленного workflow в GitHub нужен новый тег на commit с этими изменениями;
 повтор старого тега не меняет содержащийся в нём код. Реальная публикация не выполнялась.
+
+## Python 3.14: отдельная сборка и Arch runtime, 31 октября 2026
+
+Пользователь сообщил, что py3.11 egg не устанавливается в его Deluge, и разрешил
+добавить сборку Python 3.14. Read-only диагностика выявила Arch, Deluge 2.2.0,
+Twisted 26.10.0 и libtorrent 2.0.14.0. На пользовательском сервере ничего не
+устанавливалось/не включалось, настройки и payload не менялись.
+
+### Реализация и файлы
+
+- `deluge_stream/runtime_profiles.py` задаёт два явных стека: прежний Linux
+  Python 3.11 / libtorrent 2.0.8 / Twisted 24.11 и новый Arch x86_64 Python 3.14 /
+  libtorrent 2.0.14 / Twisted 26.10 (Deluge 2.2.0, SQLite >=3.40.1).
+  `policy_adapter.py` использует эту проверку, не разрешая любые будущие версии.
+- Arch поставляет binding как `deluge.libtorrent`, не как top-level `libtorrent`.
+  Plugin `policy_adapter.py`/`sources.py`, runtime probes и вспомогательные native
+  tools теперь используют штатный `deluge._libtorrent.lt` — тот же binding, что
+  использует существующая session Deluge, без дополнительного engine.
+- `resources.py`, `web_adapter.py`, `webui.py` больше не зависят от pkg_resources.
+  Статический script работает из legacy zip и нового plugin_cache; basename
+  `stream.js` сохраняется, временный ресурс освобождается на disable. Нет новых
+  atexit-callbacks на каждый unload/re-enable. Регистрация только собственного
+  `WebPlugin.Stream` устраняет несовпадение normalized id/display name в новом
+  WebPluginBase/PluginManager, без monkey patch Deluge.
+- `tools/version.py`/`setup.py` выводят имя egg и **точный** Requires-Python из
+  интерпретатора сборки: py3.11 с >=3.11,<3.12, py3.14 с >=3.14,<3.15.
+  Релизная версия по-прежнему только из Git-тега. Переименование чужого minor
+  не проходит проверку metadata в `release_bundle.py`.
+- `tools/runtime314.Dockerfile`, `requirements-dev314.txt`, `constraints314.txt`
+  дают отдельный Arch x86_64 стенд; старый 3.11 image не заменён. Base index
+  `e82623936fa1a69700b48e98b058df6eaab18b737c27473a7234a40fdecb9413`,
+  pacman snapshot 2026-10-30. Downloader sandbox отключён только внутри build
+  для QEMU/seccomp совместимости; signature verification пакетов сохранена.
+  pytest 8.4.2/rpds-py 2026.9.1 имеют поддержку 3.14, без изменения constraints 3.11.
+- Makefile/bootstrap/ci_check/split_web_check выбирают Python runtime явно;
+  split_node.py больше не переименовывает любой egg в py3.11. `--dist` передаёт
+  фактический каталог artifact в split test.
+- checks.yml содержит дополнительный native x86_64/3.14 job и отдельные имена
+  artifacts по Python. Product Compose остаётся 3.11 и проверяется его jobs.
+  Release workflow скачивает оба x86_64 bundles, вызывает `make combine-bundles`
+  и выполняет installed release-verify в обоих runtime, не пересобирая egg.
+- `release_bundle.py` schema 2 хранит оба artifact/runtime/checksum, требует
+  один bundle каждого Python и совпадение source fingerprint/commit/license.
+  Schema 1 сохранена для single-runtime candidates. `publish_release.py`
+  выбирает оба проверенных egg; no-clobber/strict/tag/clean guards сохранены,
+  ручные release approvals не возвращены. Объединение работает и на host Python
+  вне runtime-матрицы (GitHub host 3.12), без Deluge/libtorrent в host Python.
+- Unit-тесты добавлены в `test_runtime_profiles.py`, `test_resources.py`,
+  расширены `test_release_bundle.py`, `test_version.py`, `test_ci.py`.
+  Probe проверяет origin внутри plugins **или plugin_cache этого временного
+  профиля**, не ослабляя проверку до checkout. Guards fixture захватывает
+  установленные helpers до disable: новый Deluge удаляет package imports,
+  а offline fixture не должен импортировать исходники вместо установленного egg.
+- Обновлены SPEC, README, compatibility/delivery, Make help, план и индексы фаз.
+
+### Среда и реальные проверки
+
+Новый стенд: Linux x86_64 под эмуляцией Docker Desktop ARM64, Python 3.14.8,
+Deluge 2.2.0, libtorrent 2.0.14.0 (`deluge.libtorrent`), Twisted 26.10.0,
+SQLite 3.54.0. У отдельно запускаемых daemon/web системный setuptools 84.2.1
+**без pkg_resources**; setuptools 75.8.0/wheel 0.45.1 в venv — tooling.
+Ранние failures (pacman downloader sandbox, неверное имя binding-пакета,
+старый rpds constraint без cp314 wheel, pkg_resources, Web component name,
+старый probe origin и offline imports после disable) устранены. Они не
+объявляются успешными проверками или skip.
+
+```sh
+docker build --platform linux/amd64 -f tools/runtime314.Dockerfile -t deluge-stream-py314-check:amd64 . > build/build-py314-runtime.log 2>&1
+caffeinate -i docker run --rm --platform linux/amd64 --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-py314-check:amd64 make check VENV=/opt/venv BUILD_DIR=build/py314-final DIST_DIR=dist/py314-final > build/check-py314-final.log 2>&1
+caffeinate -i docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv BUILD_DIR=build/py311 DIST_DIR=dist/py311 > build/check-py311-final.log 2>&1
+STREAM_RELEASE_TAG= caffeinate -i make test-web-split CI_PYTHON=3.14 CI_PLATFORM=linux/amd64 CI_IMAGE=deluge-stream-py314-check:amd64 DIST_DIR=dist/py314-final > build/split-web-py314.log 2>&1
+docker run --rm --platform linux/amd64 --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-py314-check:amd64 make lint format-check check-docs test-unit VENV=/opt/venv > build/check-py314-final-source.log 2>&1
+```
+
+Passed: оба full check (277 unit + 87 persistence на момент запуска), native
+integration/retention/lifecycle/crash/QoS/incomplete streaming/downloads/direct,
+ZIP64, Chromium, packaging/delivery, daemon/core/web smoke с 20 циклами,
+candidate manifest. На 3.14 Chromium 156.0.8078.79 проверил реальные UI file/ZIP
+действия, затем split test — два контейнера без общего payload filesystem.
+После дополнительного unit-теста combining на host Python 3.12 — 278 unit,
+lint/format/docs Passed, 106 Python и 31 Markdown-файл. Это не новый hosted run.
+
+Двух-Python релизный путь дополнительно проверен inline host orchestrator
+(`build/verify-python-matrix.log`): копия текущих nonignored исходников в новый
+временный Git repo, fixture-only commit/tag v7.8.9; реальные candidate-check
+отдельно в 3.11 и 3.14, затем `make combine-bundles BUNDLE_PY311=dist/3.11
+BUNDLE_PY314=dist/3.14 DIST_DIR=dist/combined` и `make release-verify
+VENV=/opt/venv DIST_DIR=dist/combined` в каждом image. Passed: оба installed
+smoke/strict verify, оба egg после verify побайтно не изменились, checkout clean.
+Fixture удалён; основной Git repo не коммитился/не тегировался. Remote publisher
+не запускался и GitHub Releases не менялся.
+
+### Artifact и незакрытые границы
+
+Проверенный локальный dev artifact скопирован без пересборки в
+`dist/py314/Stream-0.0.0.dev0-py3.14.egg` (из dist/py314-final).
+SHA-256 `14962765c68a3bd3b4938ca1375c4aca05f3ba4a443ee8a86bde8ebce29ad901`;
+Requires-Python >=3.14,<3.15. Это кандидат для установки, не опубликованный релиз.
+Manifest/checksums пересоздаются для итогового дерева без изменения bytes egg.
+
+A01/A03–A08/A09–A26 проверены только в объёме общего автоматизированного набора
+и split UI (включая native file/ZIP, паузу/skipped, FIFO, races, crash recovery,
+owner/auth/tickets, safe paths, runtime packaging); A02 Lampa/Num по-прежнему
+ручная непроверенная часть. Настоящий ENOSPC, полный native/ZIP memory и HDD
+acceptance не подменяются fault injection/локальным fixture. 900-секундная
+нагрузка для 3.14 не выполнялась; ARM64/3.14 и Python 3.12/3.13 не заявляются
+проверенными runtime. Старые бинарные версии 3.11 на 3.14 не выдаются за
+проверенную миграцию; delivery использует redeployment/schema fixture.
+Фаза 5 остаётся в работе, технические CI проверки сохранены. Следующий шаг —
+установка нового py3.14 egg пользователем либо отдельная команда на её выполнение.

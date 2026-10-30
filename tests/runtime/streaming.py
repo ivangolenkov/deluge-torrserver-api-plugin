@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 import deluge.component as component
-import libtorrent as lt
+from deluge._libtorrent import lt
 from jsonschema import Draft202012Validator
 from twisted.internet import defer, task, threads
 from twisted.web.resource import Resource

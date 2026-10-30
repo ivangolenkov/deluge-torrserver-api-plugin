@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 from urllib.parse import urljoin, urlsplit
 
-import libtorrent as lt
+from deluge._libtorrent import lt
 from twisted.internet import defer, protocol
 from twisted.web.client import Agent, ResponseDone
 from twisted.web.http import PotentialDataLoss

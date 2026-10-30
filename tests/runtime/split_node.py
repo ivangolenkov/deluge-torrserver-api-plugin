@@ -12,7 +12,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 
-import libtorrent as lt
+from deluge._libtorrent import lt
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, "/checks")
@@ -35,7 +35,8 @@ def profile(path):
     (path / "plugins").mkdir(parents=True)
     with zipfile.ZipFile("/Stream.egg") as archive:
         version = BytesParser().parsebytes(archive.read("EGG-INFO/PKG-INFO"))["Version"]
-    shutil.copy2("/Stream.egg", path / f"plugins/Stream-{version}-py3.11.egg")
+    python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    shutil.copy2("/Stream.egg", path / f"plugins/Stream-{version}-py{python}.egg")
 
 
 if sys.argv[1] == "core":

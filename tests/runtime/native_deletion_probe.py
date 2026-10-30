@@ -13,7 +13,7 @@ from pathlib import Path
 
 import deluge.component as component
 import deluge.configmanager
-import libtorrent as lt
+from deluge._libtorrent import lt
 from deluge.core.daemon import Daemon
 from twisted.internet import defer, task
 

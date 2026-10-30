@@ -12,7 +12,7 @@ except ModuleNotFoundError:
     from version import RELEASE_TAG
 
 
-def commands(root, platform, image, container=None):
+def commands(root, platform, image, container=None, python="3.11"):
     return (
         (
             "image",
@@ -22,7 +22,9 @@ def commands(root, platform, image, container=None):
                 "--platform",
                 platform,
                 "-f",
-                "tools/runtime.Dockerfile",
+                "tools/runtime314.Dockerfile"
+                if python == "3.14"
+                else "tools/runtime.Dockerfile",
                 "-t",
                 image,
                 ".",
@@ -58,6 +60,7 @@ def main():
         "--platform", choices=["linux/amd64", "linux/arm64"], default="linux/amd64"
     )
     parser.add_argument("--image", default="deluge-stream-check:local")
+    parser.add_argument("--python", choices=["3.11", "3.14"], default="3.11")
     args = parser.parse_args()
     if not args.image or args.image.startswith("-"):
         parser.error("invalid Docker image tag")
@@ -65,7 +68,9 @@ def main():
     logs = root / "build" / "ci"
     logs.mkdir(parents=True, exist_ok=True)
     container = f"deluge-stream-ci-{uuid.uuid4().hex}"
-    for name, command in commands(root, args.platform, args.image, container):
+    for name, command in commands(
+        root, args.platform, args.image, container, args.python
+    ):
         path = logs / f"{name}.log"
         print(f"CI {name}: output in {path.relative_to(root)}", flush=True)
         try:

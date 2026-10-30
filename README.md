@@ -85,6 +85,12 @@ Num и полноценные UI/playback-сценарии отложены до
 
 Целевые платформы — Linux x86_64 и ARM64, включая NAS и Docker. Прототип проверяется на Debian 12, Python 3.11.2, Deluge 2.2.0, libtorrent 2.0.8.0 и Twisted 24.11.0. ARM64 запускается нативно в Linux VM; x86_64 — под эмуляцией. Это не подтверждение всех Deluge 2.x или реального NAS. [Точная матрица и зависимости](docs/compatibility.md).
 
+Добавлен отдельный профиль для Arch Linux x86_64: Python 3.14, Deluge 2.2.0,
+libtorrent 2.0.14.0, Twisted 26.10.0. Выбирайте egg под Python **каждого процесса**
+deluged/deluge-web: `py3.11` или `py3.14`, одной версии плагина. Не переименовывайте
+файл для другого Python. Runtime-проверки и ограничения — в отчёте фазы 5;
+поддержка 3.12/3.13 и ARM64/3.14 не заявляется.
+
 В первой версии не планируются транскодирование, отдельный веб-плеер и поддержка Windows/macOS. FIFO-очистка срабатывает только при превышении количества временных торрентов, а не по свободному месту или общему размеру данных.
 
 Скачивание из Web UI доступно только для готовых проверенных данных. ZIP недоступен,
@@ -121,7 +127,19 @@ docker run --rm --platform linux/arm64 --network none -v "$PWD:/work" deluge-str
 и добавьте `BUILD_DIR=build/amd64 DIST_DIR=dist/amd64` к make check.
 На ненативной архитектуре нужна поддержка эмуляции Docker.
 
-Artifact: `dist/Stream-<версия>-py3.11.egg`; точную версию покажет
+Для отдельной сборки Python 3.14 / Arch x86_64:
+
+```sh
+docker build --platform linux/amd64 -f tools/runtime314.Dockerfile -t deluge-stream-check:py314 .
+docker run --rm --platform linux/amd64 --network none -v "$PWD:/work" deluge-stream-check:py314 make check VENV=/opt/venv BUILD_DIR=build/py314 DIST_DIR=dist/py314
+```
+
+Либо `make ci-check CI_PYTHON=3.14 CI_PLATFORM=linux/amd64`.
+Bootstrap под Python 3.14 выбирает `requirements-dev314.txt`; Python 3.11
+сохраняет прежние зависимости. Product Compose остаётся на Python 3.11.
+
+Artifact: `dist/Stream-<версия>-py3.11.egg` или `...-py3.14.egg`;
+имя определяется Python, которым выполняется сборка. Точную версию покажет
 `python3 tools/version.py`. Релизная версия берётся из Git-тега (`v0.1.3` → `0.1.3`),
 без него — `0.0.0.dev0`. Редактировать `_version.py` перед выпуском не нужно.
 Это pure-Python egg,
@@ -226,15 +244,17 @@ Docker Compose и инструкции работы с постоянными vo
 
 ## Тестовая установка core/web
 
-Для подтверждённого Python 3.11 после `make build` используется
-`dist/Stream-<версия>-py3.11.egg` (версия из `python3 tools/version.py`).
+После `make build` используется egg соответствующего Python:
+`Stream-<версия>-py3.11.egg` или `Stream-<версия>-py3.14.egg`
+(версия из `python3 tools/version.py`, по умолчанию каталог `dist`).
 Установочный artifact проверяется через `make smoke`,
 а не импорт исходников. Установка вне тестов — явное действие пользователя:
 
 1. Добавьте egg через штатную страницу Plugins Deluge или, остановив процессы,
    положите его в `plugins/` каталога конфигурации **deluged**.
-2. Если deluge-web использует отдельный профиль/машину, положите **тот же egg** в
-   его собственный `plugins/`. Общий диск с daemon не требуется.
+2. Если deluge-web использует отдельный профиль/машину, положите egg той же
+   версии плагина под Python этого процесса в его `plugins/`. При одинаковом
+   Python это тот же файл; общий диск с daemon не требуется.
 3. Запустите процессы, включите Stream в Plugins на daemon и подключите Web UI
    к нему. В Preferences появится страница Stream с настройками и диагностикой core. При
    обновлении web-файлов перезагрузите страницу браузера.

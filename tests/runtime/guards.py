@@ -71,8 +71,9 @@ def metadata(root, tid):
     return root / "profile" / "state" / (tid + ".torrent")
 
 
-def stamp(torrent):
-    from deluge_stream.recovery_guard import PolicyStamp
+def stamp(torrent, PolicyStamp=None):
+    if PolicyStamp is None:
+        from deluge_stream.recovery_guard import PolicyStamp
 
     return PolicyStamp(
         tuple(torrent.options["file_priorities"]),
@@ -100,8 +101,9 @@ def set_policy(reactor, daemon, torrent, snapshot, priorities):
 
 
 @defer.inlineCallbacks
-def mark(reactor, root, torrent, piece):
-    from deluge_stream.witness import create_witness
+def mark(reactor, root, torrent, piece, create_witness=None):
+    if create_witness is None:
+        from deluge_stream.witness import create_witness
 
     witness = yield threads.deferToThread(
         create_witness,
@@ -147,6 +149,10 @@ def prepare(reactor, args):
 
 @defer.inlineCallbacks
 def replace_instance(reactor, root, daemon, snapshot, old, unlink_failure=False):
+    # Capture the installed helper before modern Deluge unloads package imports
+    # on disable; the offline fixture must not import the source checkout.
+    from deluge_stream.witness import create_witness
+
     # Simulates ordinary Deluge use while the Stream plugin is disabled.
     plugins = component.get("CorePluginManager")
     if "Stream" in plugins.get_enabled_plugins():
@@ -169,7 +175,7 @@ def replace_instance(reactor, root, daemon, snapshot, old, unlink_failure=False)
     new = helpers.add(daemon, root, raw, "v1")
     assert new.torrent_id == old.torrent_id and new is not old
     yield set_policy(reactor, daemon, new, snapshot, [2, 0, 3])
-    rid = yield mark(reactor, root, new, 2)
+    rid = yield mark(reactor, root, new, 2, create_witness)
     new.handle.set_piece_deadline(2, 0)
     yield helpers.until(reactor, lambda: new.handle.piece_priority(2) == 7)
     yield save(reactor, new)
@@ -198,7 +204,7 @@ def replace(reactor, args):
 
 @defer.inlineCallbacks
 def recover_one(reactor, root, daemon, snapshot, row, fault=None):
-    from deluge_stream.recovery_guard import admit_result
+    from deluge_stream.recovery_guard import PolicyStamp, admit_result
     from deluge_stream.witness import MetadataWitness, witness_matches
 
     rid, tid, raw_witness, piece = row
@@ -206,7 +212,7 @@ def recover_one(reactor, root, daemon, snapshot, row, fault=None):
     torrent = manager.torrents.get(tid)
     if torrent is None:
         return "instance_absent", 0
-    captured = stamp(torrent)
+    captured = stamp(torrent, PolicyStamp)
     witness = MetadataWitness(**json.loads(raw_witness))
     valid = yield threads.deferToThread(
         witness_matches, witness, metadata(root, tid), root / "profile" / "witnesses"
@@ -220,7 +226,11 @@ def recover_one(reactor, root, daemon, snapshot, row, fault=None):
         assert new.handle.piece_priority(piece) == 7
     current = manager.torrents.get(tid)
     reason = admit_result(
-        torrent, current, captured, stamp(current) if current else None, valid
+        torrent,
+        current,
+        captured,
+        stamp(current, PolicyStamp) if current else None,
+        valid,
     )
     if reason != "ready":
         return reason, 0
@@ -231,11 +241,11 @@ def recover_one(reactor, root, daemon, snapshot, row, fault=None):
     yield helpers.until(
         reactor, lambda: torrent.handle.piece_priority(piece) == desired
     )
-    assert stamp(torrent) == captured
+    assert stamp(torrent, PolicyStamp) == captured
     yield save(reactor, torrent)
     # Only the quiet controlled branch clears its own record. Product cleanup
     # still needs coordination against policy changes during this DB commit.
-    assert stamp(torrent) == captured
+    assert stamp(torrent, PolicyStamp) == captured
     yield threads.deferToThread(database, root, "clear", rid)
     return "restored", 1
 

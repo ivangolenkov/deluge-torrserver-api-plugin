@@ -72,6 +72,12 @@ Backpressure-тест разделён на native/direct reader: прежний
 в Python; без тега используется dev. Сборка генерирует внутреннюю версию только
 в build output и передаёт общий tag context через Docker/checks/verify.
 
+Добавлен отдельный py3.14 artifact под Arch x86_64 / libtorrent 2.0.14 /
+Twisted 26.10.0 без удаления py3.11. Runtime profiles и установочный smoke
+проверены раздельно; релиз объединяет только artifacts одного source snapshot.
+Полные local check обеих Python, Chromium и split core/web 3.14 прошли;
+результат локального strict release-verify не называется успешным hosted run.
+
 ## Обязательные сквозные результаты
 
 ### README

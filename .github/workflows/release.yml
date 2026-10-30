@@ -24,18 +24,25 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: stream-linux-x86_64
-          path: checked
+          name: stream-linux-x86_64-py3.11
+          path: build/checked311
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: stream-linux-x86_64-py3.14
+          path: build/checked314
       - name: Use exactly the checked artifacts (no rebuild)
-        run: python3 -c "import shutil; shutil.move('checked/dist', 'dist'); shutil.rmtree('checked')"
+        run: make combine-bundles
       - name: Build isolated verification runtime
         run: docker build -t stream-release-check -f tools/runtime.Dockerfile .
+      - name: Build Python 3.14 verification runtime
+        run: docker build -t stream-release314-check -f tools/runtime314.Dockerfile .
       - name: Strict bundle and installed smoke
         env:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           tag="${RELEASE_TAG:-$(python3 tools/version.py --tag)}"
           docker run --rm --network none -e STREAM_RELEASE_TAG="$tag" -v "$PWD:/work" stream-release-check make release-verify VENV=/opt/venv RELEASE_TAG="$tag"
+          docker run --rm --network none -e STREAM_RELEASE_TAG="$tag" -v "$PWD:/work" stream-release314-check make release-verify VENV=/opt/venv RELEASE_TAG="$tag"
       - name: Retain verified files for dry run or publication
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

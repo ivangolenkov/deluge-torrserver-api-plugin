@@ -19,11 +19,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--platform", default="linux/amd64")
+    parser.add_argument("--python", choices=["3.11", "3.14"], default="3.11")
+    parser.add_argument("--dist", type=Path, default=Path("dist"))
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    egg = root / "dist" / egg_name()
+    egg = args.dist.resolve() / egg_name(args.python)
     if not egg.is_file():
-        raise SystemExit("Run make build using Python 3.11 before test-web-split")
+        raise SystemExit(
+            f"Run make build using Python {args.python} before test-web-split: {egg}"
+        )
     name = "stream-split-" + uuid.uuid4().hex
     core, web = name + "-core", name + "-web"
     shared = [

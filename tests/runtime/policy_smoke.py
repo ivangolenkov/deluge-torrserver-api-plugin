@@ -14,7 +14,7 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
-import libtorrent as lt
+from deluge._libtorrent import lt
 from deluge.ui.client import client
 from twisted.internet import defer, task, threads
 

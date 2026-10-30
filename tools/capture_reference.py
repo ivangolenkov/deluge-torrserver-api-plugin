@@ -67,7 +67,7 @@ def headers(values):
 
 class Stand:
     def __init__(self, binary, root, lampa=None):
-        import libtorrent as lt
+        from deluge._libtorrent import lt
 
         self.lt = lt
         self.binary = Path(binary).resolve(strict=True)

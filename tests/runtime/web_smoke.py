@@ -172,6 +172,14 @@ def main(reactor):
                 flush=True,
             )
         except BaseException:
+            if "browser" in locals():
+                try:
+                    diagnostic = yield threads.deferToThread(
+                        browser.call, "web.get_plugin_resources", "Stream"
+                    )
+                    print("WEB RESOURCE DIAGNOSTIC:", diagnostic, flush=True)
+                except Exception:
+                    pass  # Preserve the original test failure.
             for log in logs:
                 log.seek(0)
                 print(log.read(), flush=True)

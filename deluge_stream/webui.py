@@ -10,16 +10,24 @@ from . import web_adapter as adapter
 
 
 class WebUI(WebPluginBase):
-    scripts = [adapter.script_path()]
+    scripts = []
+
+    def __init__(self, plugin_name):
+        adapter.initialize(self)
 
     def enable(self):
+        self.scripts = [adapter.script_path()]
         self.enabled = True
         self.generation = object()
         adapter.register(self)
 
     def disable(self):
         self.enabled = False
-        adapter.deregister(self)
+        try:
+            adapter.deregister(self)
+        finally:
+            self.scripts = []
+            adapter.release_script()
 
     def __del__(self):
         # Override the buggy base destructor; no global Deluge monkey patch.

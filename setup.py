@@ -3,7 +3,9 @@ from pathlib import Path
 from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
 
-from tools.version import VERSION, version_source
+from tools.version import VERSION, python_requires, python_tag, version_source
+
+python_tag()  # Never build an artifact for an untested Python minor by accident.
 
 
 class VersionedBuild(build_py):
@@ -23,7 +25,7 @@ setup(
         "Deluge streaming, temporary torrent retention and ready file/ZIP downloads"
     ),
     packages=find_packages(include=["deluge_stream", "deluge_stream.*"]),
-    python_requires=">=3.11,<3.12",
+    python_requires=python_requires(),
     package_data={"deluge_stream": ["data/*.js"]},
     entry_points={
         "deluge.plugin.core": ["Stream = deluge_stream:CorePlugin"],
