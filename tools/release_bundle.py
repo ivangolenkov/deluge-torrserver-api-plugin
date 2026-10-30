@@ -10,9 +10,9 @@ from email.parser import BytesParser
 from pathlib import Path
 
 try:
-    from tools.version import ROOT, VERSION, egg_name
+    from tools.version import ROOT, VERSION, egg_name, valid_version, version_source
 except ModuleNotFoundError:
-    from version import ROOT, VERSION, egg_name
+    from version import ROOT, VERSION, egg_name, valid_version, version_source
 
 RUNTIME = {
     "os": "Linux",
@@ -79,7 +79,12 @@ def check_egg(path):
         if packaged != source_files.keys():
             raise ValueError("package member set differs from current source")
         for name, source in source_files.items():
-            if archive.read(name) != source.read_bytes():
+            expected = (
+                version_source()
+                if name == "deluge_stream/_version.py"
+                else source.read_bytes()
+            )
+            if archive.read(name) != expected:
                 raise ValueError(f"stale/different packaged source: {name}")
         info = BytesParser().parsebytes(archive.read("EGG-INFO/PKG-INFO"))
         if info["Name"] != "Stream" or info["Version"] != VERSION:
@@ -96,12 +101,6 @@ def check_egg(path):
         ):
             if not archive.read(name):
                 raise ValueError(f"empty resource: {name}")
-        # Compare the packaged version source without executing archive code.
-        if (
-            archive.read("deluge_stream/_version.py")
-            != (ROOT / "deluge_stream/_version.py").read_bytes()
-        ):
-            raise ValueError("packaged version source mismatch")
 
 
 def create(dist, root=ROOT):
@@ -178,8 +177,8 @@ def verify(dist, strict=False, tag=None, root=ROOT):
         or (dist / "LICENSE").read_bytes() != (root / "LICENSE").read_bytes()
     ):
         raise ValueError("license mismatch")
-    if tag is not None and tag != f"v{VERSION}":
-        raise ValueError("tag/version mismatch")
+    if tag is not None and (tag != f"v{VERSION}" or not valid_version(tag[1:])):
+        raise ValueError(f"tag/version mismatch: tag={tag!r}, artifact={VERSION!r}")
     if strict:
         if manifest["source"]["dirty"]:
             raise ValueError("release requires a clean source checkout")

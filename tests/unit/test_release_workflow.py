@@ -23,3 +23,11 @@ def test_publish_still_requires_checked_artifacts_and_tag_push():
     assert "needs: verify" in publish
     assert "name: verified-release" in publish
     assert "python3 tools/publish_release.py" in publish
+
+
+def test_release_tag_reaches_checks_and_verification_container():
+    source = WORKFLOW.read_text()
+    checks = WORKFLOW.with_name("checks.yml").read_text()
+    assert "STREAM_RELEASE_TAG: ${{ github.ref_type == 'tag'" in checks
+    assert '-e STREAM_RELEASE_TAG="$tag"' in source
+    assert "tools/version.py --tag" in source

@@ -11,7 +11,9 @@ ENV PATH="/opt/venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1
 FROM runtime AS build
 WORKDIR /source
 COPY setup.py ./
+COPY tools/version.py ./tools/version.py
 COPY deluge_stream ./deluge_stream
+ARG STREAM_RELEASE_TAG=""
 RUN python setup.py bdist_egg --dist-dir /artifact
 
 FROM runtime AS product

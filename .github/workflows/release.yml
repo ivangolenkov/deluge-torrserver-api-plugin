@@ -34,8 +34,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          tag="${RELEASE_TAG:-v$(python3 tools/version.py)}"
-          docker run --rm --network none -v "$PWD:/work" stream-release-check make release-verify VENV=/opt/venv RELEASE_TAG="$tag"
+          tag="${RELEASE_TAG:-$(python3 tools/version.py --tag)}"
+          docker run --rm --network none -e STREAM_RELEASE_TAG="$tag" -v "$PWD:/work" stream-release-check make release-verify VENV=/opt/venv RELEASE_TAG="$tag"
       - name: Retain verified files for dry run or publication
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

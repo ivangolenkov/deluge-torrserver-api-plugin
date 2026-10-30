@@ -68,6 +68,10 @@ Backpressure-тест разделён на native/direct reader: прежний
 для 64-KiB native piece не применяется к 256-KiB direct block. Для каждого пути
 проверяются фактическая пауза producer, single-chunk budget и disconnect/drain.
 
+Релизная версия теперь выводится из Git-тега, а не редактируется отдельно
+в Python; без тега используется dev. Сборка генерирует внутреннюю версию только
+в build output и передаёт общий tag context через Docker/checks/verify.
+
 ## Обязательные сквозные результаты
 
 ### README

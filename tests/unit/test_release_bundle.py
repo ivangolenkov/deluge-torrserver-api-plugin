@@ -87,7 +87,10 @@ def delivery(tmp_path, monkeypatch):
         for source in (bundle.ROOT / "deluge_stream").rglob("*"):
             if source.is_file() and source.suffix in {".py", ".js"}:
                 archive.writestr(
-                    source.relative_to(bundle.ROOT).as_posix(), source.read_bytes()
+                    source.relative_to(bundle.ROOT).as_posix(),
+                    bundle.version_source()
+                    if source.name == "_version.py"
+                    else source.read_bytes(),
                 )
     bundle.create(dist, root)
     return root, dist
@@ -95,7 +98,7 @@ def delivery(tmp_path, monkeypatch):
 
 def test_release_without_license_is_allowed(delivery):
     root, dist = delivery
-    manifest = bundle.verify(dist, strict=True, tag=f"v{bundle.VERSION}", root=root)
+    manifest = bundle.verify(dist, strict=True, root=root)
     assert manifest["license_sha256"] is None
     assert not (dist / "LICENSE").exists()
     assert "LICENSE" not in (dist / "SHA256SUMS").read_text()
@@ -108,7 +111,7 @@ def test_release_without_license_still_requires_clean_source(delivery, monkeypat
     )
     bundle.create(dist, root)
     with pytest.raises(ValueError, match="clean source"):
-        bundle.verify(dist, strict=True, tag=f"v{bundle.VERSION}", root=root)
+        bundle.verify(dist, strict=True, root=root)
 
 
 def test_release_without_license_still_checks_tag(delivery):
@@ -121,7 +124,7 @@ def test_licensed_clean_bundle_and_tag(delivery):
     root, dist = delivery
     (root / "LICENSE").write_text("Test license fixture; not a project license")
     bundle.create(dist, root)
-    bundle.verify(dist, strict=True, tag=f"v{bundle.VERSION}", root=root)
+    bundle.verify(dist, strict=True, root=root)
     with pytest.raises(ValueError, match="tag/version"):
         bundle.verify(dist, tag="v9.9.9", root=root)
 
@@ -180,3 +183,16 @@ def test_manifest_is_not_acceptance_claim(delivery):
     notes = (dist / "RELEASE-NOTES.md").read_text()
     assert "not a publication prerequisite" in notes
     assert "remain separate release gates" not in notes
+
+
+def test_wrong_generated_runtime_version_is_rejected(delivery):
+    _, dist = delivery
+    artifact = dist / bundle.egg_name()
+    with zipfile.ZipFile(artifact) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    entries["deluge_stream/_version.py"] = b'__version__ = "99.99.99"\n'
+    with zipfile.ZipFile(artifact, "w") as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    with pytest.raises(ValueError, match="stale/different packaged source"):
+        bundle.check_egg(artifact)

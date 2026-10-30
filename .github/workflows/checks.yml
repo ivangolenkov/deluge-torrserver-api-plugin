@@ -30,6 +30,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       CI_PLATFORM: ${{ matrix.platform }}
+      STREAM_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
     timeout-minutes: 35
     steps:
       - name: Checkout

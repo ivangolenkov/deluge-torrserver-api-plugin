@@ -9,5 +9,6 @@
 !constraints.txt
 !tools/
 !tools/runtime.Dockerfile
+!tools/version.py
 **/__pycache__
 **/*.py[cod]

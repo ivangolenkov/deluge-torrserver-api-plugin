@@ -121,7 +121,10 @@ docker run --rm --platform linux/arm64 --network none -v "$PWD:/work" deluge-str
 и добавьте `BUILD_DIR=build/amd64 DIST_DIR=dist/amd64` к make check.
 На ненативной архитектуре нужна поддержка эмуляции Docker.
 
-Artifact ARM64-проверки: `dist/Stream-0.0.1-py3.11.egg`. Это pure-Python egg,
+Artifact: `dist/Stream-<версия>-py3.11.egg`; точную версию покажет
+`python3 tools/version.py`. Релизная версия берётся из Git-тега (`v0.1.3` → `0.1.3`),
+без него — `0.0.0.dev0`. Редактировать `_version.py` перед выпуском не нужно.
+Это pure-Python egg,
 но runtime libtorrent является системной зависимостью. Не переименовывайте egg
 для другой версии Python. Сборка `.egg` через setuptools пока необходима для
 проверенного PluginManager Deluge 2.2.0; setuptools сообщает deprecation warning.
@@ -213,14 +216,19 @@ ARM64-матрица и поставка образов остаются зад�
 permissions только contents:read, публикационных secrets нет. Это тестовые
 artifacts, не GitHub Releases.
 
-В фазе 5 появится отдельный release workflow. Версионный тег будет запускать обязательные проверки, сборку и автоматическую публикацию проверенных plugin artifacts в GitHub Releases с checksum и таблицей совместимости. Обычный PR не публикует релиз; ручная проверка pipeline должна поддерживать режим без публикации.
+Release workflow по версионному тегу получает версию пакета из этого тега,
+выполняет проверки и публикует проверенный artifact без пересборки в verify.
+Обычный PR не публикует релиз; workflow_dispatch проверяет pipeline без публикации.
+Контекст версии проходит через Docker автоматически. Подробности и dev-сборки —
+в [инструкции поставки](docs/delivery.md).
 
 Docker Compose и инструкции работы с постоянными volumes также запланированы на фазу 5. `tools/runtime.Dockerfile` — только изолированный стенд фазы 0, не продуктовый Docker-образ. Публичных релизных образов и artifacts пока нет.
 
 ## Тестовая установка core/web
 
 Для подтверждённого Python 3.11 после `make build` используется
-`dist/Stream-0.0.1-py3.11.egg`. Установочный artifact проверяется через `make smoke`,
+`dist/Stream-<версия>-py3.11.egg` (версия из `python3 tools/version.py`).
+Установочный artifact проверяется через `make smoke`,
 а не импорт исходников. Установка вне тестов — явное действие пользователя:
 
 1. Добавьте egg через штатную страницу Plugins Deluge или, остановив процессы,

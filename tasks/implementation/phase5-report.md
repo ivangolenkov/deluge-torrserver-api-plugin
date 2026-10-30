@@ -12,6 +12,10 @@
 Ниже сохранены исторические результаты прежнего LICENSE gate; актуальное
 изменение описано в разделе «LICENSE больше не обязательный release-gate».
 
+Актуальный источник релизной версии — Git-тег; исходный `_version.py` содержит
+только dev fallback и API version. Переход описан в конце отчёта; прежняя ручная
+централизация версии ниже сохранена как история реализации.
+
 ## Реализовано
 
 - Версия egg и runtime вынесена в один `_version.py`, описание пакета актуализировано,
@@ -633,3 +637,74 @@ A04/A06/A08/A21 повторно прошли в объёме прежнего s
 нагрузка не повторялась: runtime/native код не менялся. Технические проверки
 публикации сохранены, фаза 5 не объявляется завершённой. Следующий шаг — повтор
 пользовательского CI с исправленным тестом; внешняя публикация не выполнялась.
+
+## Релизная версия из Git-тега, без ручного дублирования
+
+По прямой команде пользователя версия пакета больше не редактируется в Python
+перед каждым релизом. `tools/version.py` разрешает `vX.Y.Z` (также a/b/rc)
+в PEP 440 версию без `v`. Без тега используется `0.0.0.dev0`; `API_VERSION=1`
+остаётся отдельным контрактом. Исходный `_version.py` не меняется при сборке:
+`setup.py` генерирует версию только в build output. Та же версия используется
+в имени egg, PKG-INFO, runtime module, manifest, release notes и publisher.
+
+Порядок выбора: явный `STREAM_RELEASE_TAG` (пустое значение принудительно выбирает
+dev), GitHub tag event, dev для GitHub branch/PR, единственный валидный тег на
+локальном HEAD, иначе dev для untagged/source snapshot. Несколько локальных тегов
+требуют явного выбора; невалидный явный/GitHub тег отклоняется. Git-вызов сохраняет
+точечный process-local safe.directory для bind mount с другим владельцем.
+
+Изменены setup, version helper, source fallback и `release_bundle.check_egg`:
+исключение для генерируемого version module сравнивает его с ожидаемым точным
+содержимым, а не пропускает файл. Остальные исходники, API version, metadata,
+source fingerprint, dirty check, checksum/tag validation и asset protection
+сохранены. Ошибка tag/version теперь выводит оба фактических значения.
+Strict dev dry run без тега допускается; dev tag не проходит release tag validation.
+
+Tag context автоматически проходит checks.yml → ci_check.py → Docker, через
+verify container, Makefile и product Docker build ARG. `.dockerignore` разрешает
+build helper, который не требуется установленному плагину. Packaging snapshots
+копируют helper и получают tag context явно. Historical delivery включает helper,
+если он есть в старом commit, и не наследует release tag текущего кандидата.
+README, SPEC, delivery, Make help, план и индекс фаз обновлены. Workflow_dispatch
+не публикует; снятые ручные approvals не возвращены.
+
+Новые unit-тесты проверяют valid/invalid/prerelease tags, branch/snapshot dev,
+неоднозначность локальных тегов, safe Git argv и wiring передачи context. Реальные
+subprocess builds в одном временном build-каталоге проходят release → prerelease
+→ dev: filename/PKG-INFO/runtime version согласованы, исходник неизменен. В чистом
+fixture Git checkout эти artifacts проходят strict bundle verification без
+пересборки; Git остаётся clean. Отдельно проверено отклонение подменённого
+генерируемого version module. Статические workflow tests не равны hosted run.
+
+Среда: прежний Debian 12 Docker runtime, Python 3.11.2, Deluge 2.2.0,
+libtorrent 2.0.8.0, Twisted 24.11.0. Фактические команды:
+
+```sh
+caffeinate -i docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv > build/check-tag-version-dev-arm64.log 2>&1
+caffeinate -i docker run --rm --platform linux/amd64 --network none -e STREAM_RELEASE_TAG=v0.1.3 -v "$PWD:/work" deluge-stream-phase5-check:amd64 make check VENV=/opt/venv > build/check-tag-version-release-amd64.log 2>&1
+STREAM_RELEASE_TAG=v0.1.3 caffeinate -i make docker-build test-docker PRODUCT_IMAGE=deluge-stream-tag-version:arm64 CI_PLATFORM=linux/arm64 > build/check-tag-version-product-arm64.log 2>&1
+docker run --rm --network none -e STREAM_RELEASE_TAG=v0.1.3 -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint format-check test-unit VENV=/opt/venv
+```
+
+Passed: оба полных check (на тот момент 263 unit + 87 persistence), native
+integration/download/direct/retention, Chromium, packaging/delivery и core/web
+installed smoke. После добавления проверки tampered version и усиления clean
+fixture bundle test — 264 unit Passed; lint/format Passed, 102 Python-файла.
+Product Compose Passed: non-root core/web, recreation, offline backup/restore,
+точные bytes. Внутри образа проверены `/opt/plugin/Stream-0.1.3-py3.11.egg`
+и runtime `__version__ == "0.1.3"`.
+
+Дополнительный inline subprocess experiment (`build/check-tag-version-clean-release.log`):
+в ARM64 контейнере скопированы nonignored исходники в новый временный Git repo,
+созданы fixture-only commit и локальный тег `v7.8.9rc1`. Без version override
+выполнены `make candidate-check VENV=/opt/venv` и `make release-verify VENV=/opt/venv`.
+Настоящий installed smoke и strict verify прошли; SHA-256 egg до/после verify
+совпал, source `_version.py` не изменился, `git status --porcelain` пуст.
+Ни commit, ни tag рабочего пользовательского репозитория не создавались;
+fixture автоматически удалён. Это не remote/hosted release.
+
+A01/A24/A25 и остальные A01–A26 повторены только в объёме общего автоматического
+набора и Compose; клиентская/HDD-приёмка не объявляется выполненной. Нагрузка
+не повторялась: payload/QoS код не менялся. Фаза 5 остаётся в работе. Для проверки
+исправленного workflow в GitHub нужен новый тег на commit с этими изменениями;
+повтор старого тега не меняет содержащийся в нём код. Реальная публикация не выполнялась.

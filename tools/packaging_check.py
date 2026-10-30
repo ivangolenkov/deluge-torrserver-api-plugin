@@ -1,6 +1,7 @@
 """Compare two clean-directory builds, including installed package resources."""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,11 @@ try:
 except ModuleNotFoundError:
     from release_bundle import ROOT, check_egg, digest, egg_name
 
+try:
+    from tools.version import RELEASE_TAG
+except ModuleNotFoundError:
+    from version import RELEASE_TAG
+
 
 def main():
     with tempfile.TemporaryDirectory(prefix="stream-packaging-") as directory:
@@ -22,6 +28,8 @@ def main():
             source = Path(directory) / name
             source.mkdir()
             shutil.copy2(ROOT / "setup.py", source)
+            (source / "tools").mkdir()
+            shutil.copy2(ROOT / "tools/version.py", source / "tools/version.py")
             shutil.copytree(
                 ROOT / "deluge_stream",
                 source / "deluge_stream",
@@ -30,6 +38,7 @@ def main():
             subprocess.run(
                 [sys.executable, "setup.py", "bdist_egg"],
                 cwd=source,
+                env=dict(os.environ, STREAM_RELEASE_TAG=RELEASE_TAG),
                 check=True,
                 stdout=subprocess.DEVNULL,
                 timeout=60,

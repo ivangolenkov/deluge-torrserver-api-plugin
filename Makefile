@@ -9,7 +9,7 @@ CI_IMAGE ?= deluge-stream-check:local
 RUN = $(VENV)/bin/python
 VERSION = $(shell $(PYTHON) tools/version.py)
 EGG = $(DIST_DIR)/Stream-$(VERSION)-py3.11.egg
-RELEASE_TAG ?= v$(VERSION)
+RELEASE_TAG ?= $(shell $(PYTHON) tools/version.py --tag)
 COMPOSE ?= docker compose
 PRODUCT_IMAGE ?= deluge-stream:local
 LOAD_SECONDS ?= 900
@@ -28,6 +28,7 @@ help:
 	@echo 'bootstrap: venv + pinned tools; Linux runtime also needs python3-libtorrent.'
 	@echo 'lint format-check check-docs test-unit: offline source checks after bootstrap.'
 	@echo 'build: Python-versioned egg in DIST_DIR; smoke: install/enable/disable that egg.'
+	@echo 'Version: Git release tag, or 0.0.0.dev0 without one; no manual source version bump.'
 	@echo 'test-persistence: SQLite policy/migrations/worker and recovery-ledger tests.'
 	@echo 'test-integration: SQLite, native HTTP/streaming/QoS/preload/restart, policy/FIFO, guards, ZIP64.'
 	@echo 'test: unit + integration; check: docs/lint/format/test/build/smoke.'
@@ -89,10 +90,10 @@ test-packaging:
 candidate-check: smoke
 	$(RUN) tools/release_bundle.py --create --dist "$(DIST_DIR)"
 release-check: candidate-check
-	$(RUN) tools/release_bundle.py --dist "$(DIST_DIR)" --strict --tag "$(RELEASE_TAG)"
+	$(RUN) tools/release_bundle.py --dist "$(DIST_DIR)" --strict $(if $(RELEASE_TAG),--tag "$(RELEASE_TAG)")
 .PHONY: docker-build docker-up docker-down
 docker-build:
-	STREAM_IMAGE="$(PRODUCT_IMAGE)" $(COMPOSE) build core
+	STREAM_IMAGE="$(PRODUCT_IMAGE)" $(COMPOSE) build --build-arg STREAM_RELEASE_TAG="$(shell $(PYTHON) tools/version.py --tag)" core
 docker-up:
 	$(COMPOSE) up -d
 docker-down:
@@ -102,11 +103,11 @@ test-docker:
 	$(PYTHON) tools/docker_check.py --image "$(PRODUCT_IMAGE)" --platform "$(CI_PLATFORM)"
 .PHONY: ci-candidate smoke-existing release-verify
 ci-candidate:
-	docker run --rm --platform "$(CI_PLATFORM)" --network none -v "$(CURDIR):/work" "$(CI_IMAGE)" make candidate-check VENV=/opt/venv
+	docker run --rm --platform "$(CI_PLATFORM)" --network none -e STREAM_RELEASE_TAG="$(shell $(PYTHON) tools/version.py --tag)" -v "$(CURDIR):/work" "$(CI_IMAGE)" make candidate-check VENV=/opt/venv
 smoke-existing:
 	$(RUN) tools/runtime_check.py --mode smoke --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
 release-verify: smoke-existing
-	$(RUN) tools/release_bundle.py --dist "$(DIST_DIR)" --strict --tag "$(RELEASE_TAG)"
+	$(RUN) tools/release_bundle.py --dist "$(DIST_DIR)" --strict $(if $(RELEASE_TAG),--tag "$(RELEASE_TAG)")
 ci-check:
 	$(PYTHON) tools/ci_check.py --platform "$(CI_PLATFORM)" --image "$(CI_IMAGE)"
 clean:

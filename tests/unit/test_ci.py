@@ -17,6 +17,7 @@ def test_ci_uses_same_make_checks_without_network_or_publication():
     assert check[1][-4:] == ["test:local", "make", "check", "VENV=/opt/venv"]
     assert "/checkout with spaces:/work" in check[1]
     assert check[1][check[1].index("--network") + 1] == "none"
+    assert f"STREAM_RELEASE_TAG={ci_check.RELEASE_TAG}" in check[1]
     assert not any(
         word in {"push", "publish", "release"}
         for _, command in (image, check)

@@ -6,6 +6,11 @@ import sys
 import uuid
 from pathlib import Path
 
+try:
+    from tools.version import RELEASE_TAG
+except ModuleNotFoundError:
+    from version import RELEASE_TAG
+
 
 def commands(root, platform, image, container=None):
     return (
@@ -33,6 +38,8 @@ def commands(root, platform, image, container=None):
                 platform,
                 "--network",
                 "none",
+                "-e",
+                f"STREAM_RELEASE_TAG={RELEASE_TAG}",
                 *(["--name", container] if container else []),
                 "-v",
                 f"{root}:/work",
