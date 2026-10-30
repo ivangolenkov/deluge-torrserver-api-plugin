@@ -281,30 +281,69 @@ def run(reactor, root, egg):
         assert background.handle.status().total_done > 0
         assert background.options["file_priorities"] == [4]
         assert not background.handle.status().paused
-        # A real non-reading socket must activate Twisted backpressure without
-        # unbounded read-ahead; disconnect releases its chunk and native wait.
-        slow = socket.socket()
-        slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+        # Make both reader paths deterministic instead of depending on whether
+        # the background download completed before a slow HTTP request arrived.
+        yield native.until(reactor, lambda: torrent.handle.status().is_seeding)
+        original_direct = server.streams.adapter.supports_direct
+        for direct in (False, True):
+            # Fixture-only switch: ready native reads remain covered even though
+            # production prefers direct reads for a fully verified file.
+            server.streams.adapter.supports_direct = direct
+            slow = socket.socket()
+            slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
 
-        def connect_slow():
-            slow.connect(("127.0.0.1", port))
-            slow.sendall(
-                (
-                    f"GET {stream} HTTP/1.1\r\nHost: localhost\r\n"
-                    "Connection: close\r\n\r\n"
-                ).encode()
+            def connect_slow(slow=slow):
+                slow.connect(("127.0.0.1", port))
+                slow.sendall(
+                    (
+                        f"GET {stream} HTTP/1.1\r\nHost: localhost\r\n"
+                        "Connection: close\r\n\r\n"
+                    ).encode()
+                )
+
+            try:
+                yield threads.deferToThread(connect_slow)
+                yield native.until(reactor, lambda: bool(server.streams.sessions))
+                assert len(server.streams.sessions) == 1
+                session = next(iter(server.streams.sessions.values()))
+                producer = session.cancel.__self__
+                yield native.until(reactor, lambda producer=producer: producer.paused)
+                assert (session.direct_identity is not None) == direct
+                block = (
+                    server.streams.direct.BLOCK_SIZE
+                    if direct
+                    else session.layout.piece_length
+                )
+                # One chunk (two conservative copies) plus bounded HTTP writes;
+                # this is deliberately stricter than the global payload budget.
+                limit = 2 * block + server.streams.HTTP_OVERHEAD
+                peak = 0
+                for _ in range(10):
+                    reserved = server.streams.reserved
+                    peak = max(peak, reserved)
+                    assert 0 <= reserved <= limit, (direct, reserved, limit)
+                    assert len(server.streams.jobs) <= 1
+                    assert (
+                        server.streams.direct.pending if server.streams.direct else 0
+                    ) <= 1
+                    if producer.chunk is not None:
+                        assert len(producer.chunk.data) <= block
+                    yield task.deferLater(reactor, 0.02, lambda: None)
+                print(
+                    f"BACKPRESSURE: reader={'direct' if direct else 'native'} "
+                    f"reservation_peak={peak} single_chunk_limit={limit}"
+                )
+            finally:
+                slow.close()
+                server.streams.adapter.supports_direct = original_direct
+            yield native.until(
+                reactor,
+                lambda: not server.streams.sessions
+                and server.streams.reserved == 0
+                and not server.streams.jobs
+                and not (server.streams.direct and server.streams.direct.pending),
             )
-
-        yield threads.deferToThread(connect_slow)
-        yield native.until(reactor, lambda: bool(server.streams.sessions))
-        yield task.deferLater(reactor, 0.2, lambda: None)
-        assert server.streams.reserved <= 4 * 65536
-        slow.close()
-        yield native.until(
-            reactor,
-            lambda: not server.streams.sessions and server.streams.reserved == 0,
-        )
-        assert server.streams.reserved == 0
+            assert not server.streams.owned
         # Ready bytes must remain readable under torrent AND session pause.
         torrent.handle.pause()
         yield native.until(reactor, lambda: torrent.handle.status().paused)

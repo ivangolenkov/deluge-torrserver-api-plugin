@@ -56,6 +56,11 @@ Unit-тесты проверяют native fallback для незавершённ
 symlinks, timeout и EOF. Это не расширяет гарантии целостности при внешней записи
 в тот же payload inode и не заменяет реальный ENOSPC или HDD-приёмку.
 
+Для A20 native streaming suite отдельно проверяет оба reader на non-reading
+сокете: фактический `pauseProducing`, до одного chunk/job, reservation не больше
+`2 * reader_block_size + HTTP_OVERHEAD` и полный drain после disconnect.
+Выбор reader в fixture детерминирован, лимит не зависит от скорости догрузки.
+
 ## Производительность и выпуск
 
 Отдельный `test-performance` сохраняет JSON с размером pieces, длительностью,

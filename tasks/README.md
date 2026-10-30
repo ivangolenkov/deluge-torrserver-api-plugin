@@ -64,6 +64,10 @@ Git доверяет только выбранному checkout на время 
 global/system config. Регрессия с ownership guard и настоящий UID mismatch
 проверены локально; это не подтверждение нового hosted run.
 
+Backpressure-тест разделён на native/direct reader: прежний фиксированный лимит
+для 64-KiB native piece не применяется к 256-KiB direct block. Для каждого пути
+проверяются фактическая пауза producer, single-chunk budget и disconnect/drain.
+
 ## Обязательные сквозные результаты
 
 ### README

@@ -333,6 +333,8 @@ reactor lag. Web JSON отдаёт проверенное подмножеств
 daemon. Повторный set_config позволяет повторить bind после устранения конфликта.
 
 Тесты подтверждают HTTP-байты локального fixture, не декодирование настоящего видео.
+Backpressure проверяется отдельно для native и direct reader: одна порция данных
+с HTTP overhead в общем budget, затем освобождение reservations при disconnect.
 Клиентские сценарии — [чеклист](docs/client-acceptance.md).
 
 ## Web UI и скачивание готовых данных

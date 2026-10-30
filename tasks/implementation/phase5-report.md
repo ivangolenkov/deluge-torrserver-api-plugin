@@ -584,3 +584,52 @@ bugfix относится к поставке/provenance, не меняет runt
 нагрузка и реальный GitHub run не повторялись; независимый от архитектуры Git
 аргумент подтверждён unit/native subprocess проверками. Фаза 5 остаётся в работе.
 Следующий шаг — повторить пользовательский `make ci-check`/GitHub job с исправлением.
+
+## Исправление устаревшего backpressure assert после direct-read
+
+Пользователь сообщил отказ native streaming suite на
+`assert server.streams.reserved <= 4 * 65536`. Это старый single-piece лимит:
+две копии 64-KiB native piece + 128-KiB HTTP overhead = 262,144 bytes.
+После direct-read допустимая порция — 256 KiB, reservation равен
+`2 * 256 KiB + 128 KiB = 655,360 bytes`. Тест случайно проходил, если торрент
+ещё не был целиком готов к началу slow GET, и падал, если выбирался direct reader.
+Production budget/размер блоков не менялись; обнаружена ошибка тестового ожидания.
+
+`tests/runtime/streaming.py` теперь дожидается native seeding и выполняет
+non-reading socket сценарий отдельно для native и direct reader. Переключение
+`supports_direct` — fixture-only и восстанавливается в finally; незавершённые
+native readers по-прежнему проверяются предыдущими двухклиентскими GET.
+Сокет закрывается в finally даже при отказе assertion.
+
+Для каждого пути тест ждёт реального `producer.paused`, проверяет выбор reader,
+10 раз измеряет reservation с лимитом `2 * reader_block + HTTP_OVERHEAD`,
+проверяет не более одного job и chunk не больше размера блока. Это single-chunk
+граница, не ослабление до общего глобального budget. После disconnect ожидается
+полный drain sessions/reservations/native+direct jobs и отсутствие deadlines.
+README, acceptance и индекс фаз обновлены; Makefile/CI уже запускают этот suite,
+поэтому изменений их целей/YAML не потребовалось.
+
+Среда: Debian 12, Python 3.11.2, Deluge 2.2.0, libtorrent 2.0.8.0,
+Twisted 24.11.0, установленный egg в одноразовом профиле. Проверки:
+
+```sh
+caffeinate -i docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 /opt/venv/bin/python -I tests/runtime/streaming.py --egg dist/Stream-0.0.1-py3.11.egg --profile-root "" > build/check-backpressure-arm64.log 2>&1
+caffeinate -i docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv > build/check-reader-backpressure-arm64.log 2>&1
+caffeinate -i docker run --rm --platform linux/amd64 --network none -v "$PWD:/work" deluge-stream-phase5-check:amd64 /opt/venv/bin/python -I tests/runtime/streaming.py --egg dist/Stream-0.0.1-py3.11.egg --profile-root "" > build/check-backpressure-amd64.log 2>&1
+```
+
+Все итоговые команды Passed. ARM64 полный check: 250 unit + 87 persistence,
+lint/format/docs, native integration/download/direct/retention, Chromium,
+packaging/delivery/smoke/candidate. Первый общий запуск остановился на lint B023
+в новом loop callback; binding исправлен, успешный запуск выполнен после изменения.
+x86_64 — эмуляция; проверен именно изменённый streaming suite, не полный check.
+На обеих архитектурах paused native reservation peak = 0, bound = 262,144;
+direct reservation peak = 655,360, bound = 655,360. Нулевой native peak допустим:
+transport остановил producer после освобождения целого native chunk.
+
+A20 подтверждён для обоих ready-reader путей на реальном HTTP transport;
+A04/A06/A08/A21 повторно прошли в объёме прежнего streaming suite. A25 — ARM64
+и эмулируемый x86_64; не hosted run и не HDD/Lampa/Num acceptance. Длительная
+нагрузка не повторялась: runtime/native код не менялся. Технические проверки
+публикации сохранены, фаза 5 не объявляется завершённой. Следующий шаг — повтор
+пользовательского CI с исправленным тестом; внешняя публикация не выполнялась.
