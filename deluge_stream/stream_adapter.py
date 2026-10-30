@@ -9,6 +9,8 @@ from .layout import FileSpan, Layout
 
 
 class NativeStreams:
+    supports_direct = True
+
     def __init__(self, policy):
         self.policy = policy
         self.manager = policy.adapter.manager
@@ -135,6 +137,10 @@ class NativeStreams:
             raise RuntimeError("torrent_not_found")
         handle = torrent.handle
         status = handle.status()
+        if status.errc.value():
+            raise RuntimeError(
+                "disk_full" if status.errc.value() == 28 else "storage_error"
+            )
         if (
             status.moving_storage
             or torrent.forcing_recheck

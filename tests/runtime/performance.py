@@ -4,6 +4,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import logging
 import math
 import os
 import platform
@@ -106,11 +107,29 @@ def process_usage():
     }
 
 
+class TransferLog(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    def emit(self, record):
+        self.events.append(record.getMessage())
+        self.events = self.events[-32:]
+
+
 @defer.inlineCallbacks
 def run(reactor, root, args):
     daemon, _, _ = yield native.start(reactor, root, args.egg)
     plugin = component.get("CorePluginManager").plugins["Stream"].plugin
     server, policy = plugin.server, plugin.policy
+    transfer_log = TransferLog()
+    logger = logging.getLogger("deluge_stream.streaming")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    logger.addHandler(transfer_log)
+    started = time.monotonic()
+    reactor_started = reactor.seconds()
+    clock_drift = []
     clocks, payload, rss = [], [], []
     disk_blocks = []
     ticker = None
@@ -163,7 +182,8 @@ def run(reactor, root, args):
         yield native.until(
             reactor,
             lambda: not server.streams.sessions
-            and server.streams.diagnostics()["piece_jobs"] == 0,
+            and server.streams.diagnostics()["piece_jobs"] == 0
+            and server.streams.diagnostics()["direct_jobs"] == 0,
         )
         yield task.deferLater(reactor, 0.5, lambda: None)
         before = yield threads.deferToThread(process_usage)
@@ -172,6 +192,7 @@ def run(reactor, root, args):
         def tick():
             now = time.monotonic()
             clocks.append(max(0, now - previous[0] - 0.02))
+            clock_drift.append(reactor.seconds() - reactor_started - (now - started))
             previous[0] = now
             payload.append(server.streams.diagnostics()["payload_bytes_reserved"])
 
@@ -195,7 +216,8 @@ def run(reactor, root, args):
         yield native.until(
             reactor,
             lambda: not server.streams.sessions
-            and server.streams.diagnostics()["piece_jobs"] == 0,
+            and server.streams.diagnostics()["piece_jobs"] == 0
+            and server.streams.diagnostics()["direct_jobs"] == 0,
         )
         yield task.deferLater(reactor, 1, lambda: None)
         after = yield threads.deferToThread(process_usage)
@@ -216,6 +238,7 @@ def run(reactor, root, args):
             "ready_first_byte_p95_seconds": p95(first),
             "reactor_lag_p95_seconds": p95(clocks),
             "reactor_samples": len(clocks),
+            "reactor_clock_drift_max_seconds": max(map(abs, clock_drift), default=0),
             "payload_peak_bytes": max(payload),
             "before": before,
             "after": after,
@@ -247,7 +270,25 @@ def run(reactor, root, args):
         assert diag["payload_bytes_reserved"] == 0
         assert diag["deadlines"] == 0
         assert after["fds"] <= before["fds"], (before, after)
+    except BaseException as exc:
+        failure = {
+            "passed": False,
+            "elapsed_seconds": time.monotonic() - started,
+            "reactor_elapsed_seconds": reactor.seconds() - reactor_started,
+            "reactor_clock_drift_max_seconds": max(map(abs, clock_drift), default=0),
+            "error": str(exc),
+            "final_streaming": server.streams.diagnostics(),
+            "recent_transfers": transfer_log.events,
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        yield threads.deferToThread(
+            args.output.write_text, json.dumps(failure, indent=2) + "\n"
+        )
+        print(json.dumps(failure), flush=True)
+        raise
     finally:
+        logger.removeHandler(transfer_log)
+        logger.setLevel(previous_level)
         if ticker and ticker.running:
             ticker.stop()
         if sampler and sampler.running:

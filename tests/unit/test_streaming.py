@@ -7,7 +7,7 @@ from twisted.python.failure import Failure
 
 from deluge_stream.config import DEFAULTS
 from deluge_stream.layout import FileSpan, Layout
-from deluge_stream.streaming import Streams, window
+from deluge_stream.streaming import Chunk, Streams, window
 from deluge_stream.transfers import TransferRegistry
 
 
@@ -125,6 +125,71 @@ def test_window_is_byte_bounded_and_uses_native_offsets():
     assert list(window(file, 31, 32, 32, 100)) == [0]
     assert list(window(file, 31, 97, 32, 33)) == [0, 1]
     assert not window(file, 97, 97, 32, 100)
+
+
+def test_ready_range_in_incomplete_file_keeps_native_reader(engine):
+    engine.adapter.supports_direct = True
+    engine.adapter.ready.add(0)
+    session = open_session(engine, stop=16)
+    assert session.direct_identity is None and engine.direct is None
+    waiting = engine.read_next(session)
+    with pytest.raises(RuntimeError, match="operation_conflict"):
+        result(engine.read_next(session))
+    assert engine.adapter.reads == [0]
+    engine.adapter.emit(0)
+    chunk = result(waiting)
+    assert chunk.start == 0 and chunk.data == b"x" * 32
+    assert not session.reading
+    chunk.release()
+
+
+def test_native_read_next_cancellation_releases_single_read_guard(engine):
+    session = open_session(engine)
+    waiting = engine.read_next(session)
+    waiting.cancel()
+    with pytest.raises(defer.CancelledError):
+        result(waiting)
+    assert not session.reading
+
+
+@pytest.mark.parametrize("outcome", ["ready", "lost", "timeout"])
+def test_whole_file_direct_selection_and_live_readiness(engine, outcome):
+    engine.adapter.supports_direct = True
+    engine.adapter.ready.update(range(4))
+    pending = defer.Deferred()
+
+    def submit(session, operation, *args, charge=0, start=None):
+        if start is None:
+            return defer.succeed((1, 2))
+        assert args[-2:] == (0, 128)
+        engine.reserved += charge
+        pending.addCallback(lambda data: Chunk(engine, data, charge, start=start))
+        return pending
+
+    engine.direct = SimpleNamespace(
+        submit=submit, BLOCK_SIZE=256 * 1024, close=lambda: defer.succeed(None)
+    )
+    session = open_session(engine)
+    assert session.direct_identity == (1, 2) and not engine.owned
+    waiting = engine.read_next(session)
+    if outcome == "timeout":
+        engine.reactor.advance(1.1)
+        with pytest.raises(defer.TimeoutError):
+            result(waiting)
+        # The real DirectReader retains this charge until the worker drains.
+        engine.reserved = 0
+    else:
+        if outcome == "lost":
+            engine.adapter.ready.remove(0)
+        pending.callback(b"x" * 128)
+        if outcome == "lost":
+            with pytest.raises(RuntimeError, match="file_not_ready"):
+                result(waiting)
+        else:
+            chunk = result(waiting)
+            assert chunk.start == 0 and chunk.data == b"x" * 128
+            chunk.release()
+    assert not session.reading and not engine.adapter.reads
 
 
 @pytest.mark.parametrize(

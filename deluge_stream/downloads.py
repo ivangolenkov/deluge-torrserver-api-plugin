@@ -57,7 +57,7 @@ def metadata_charge(layout, files):
 
 
 def fingerprints(root, files):
-    """Worker-only: reject symlink components and record external modification."""
+    """Worker-only: check safe paths and inode identity, not external content edits."""
     root = Path(root)
     if not root.is_absolute():
         raise ValueError("unsafe_paths")
@@ -84,9 +84,7 @@ def fingerprints(root, files):
             else:
                 if not stat.S_ISREG(value.st_mode) or value.st_size < file.size:
                     raise RuntimeError("storage_error")
-                result.append(
-                    (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
-                )
+                result.append((value.st_dev, value.st_ino))
         except OSError:
             raise RuntimeError("storage_error") from None
     return tuple(result)
@@ -362,6 +360,15 @@ class Downloads:
                 opened=(ticket.native, ticket.layout, ticket.files[0], ticket.root),
             )
             if session.native is not ticket.native:
+                raise RuntimeError("operation_conflict")
+            session.expected_identities = {
+                file.index: identity
+                for file, identity in zip(ticket.files, ticket.identities, strict=True)
+            }
+            if (
+                session.direct_identity is not None
+                and session.direct_identity != ticket.identities[0]
+            ):
                 raise RuntimeError("operation_conflict")
             ticket.uses += 1
             return session

@@ -249,7 +249,7 @@ class TorrServer:
     def close(self):
         self.closed = True
         self.downloads.close()
-        self.streams.close()
+        disk_drained = self.streams.close()
         for request in tuple(self.active_requests):
             request.transport.abortConnection()
         if self.site is not None:
@@ -257,6 +257,7 @@ class TorrServer:
                 channel.transport.abortConnection()
             self.site = None
         yield self.torrents.close()
+        yield disk_drained
         yield self.configure_lock.acquire()
         try:
             if self.listener is not None:
@@ -691,7 +692,7 @@ class Playback:
             session = self.session
             self.server.streams.adapter.check(session)
             if self.chunk is not None:
-                offset = session.position % session.layout.piece_length
+                offset = session.position - self.chunk.start
                 count = min(
                     65536,
                     len(self.chunk.data) - offset,
@@ -702,7 +703,7 @@ class Playback:
                 self.request.write(self.chunk.data[offset : offset + count])
                 self.server.streams.advance(session, count)
                 if (
-                    session.position % session.layout.piece_length == 0
+                    offset + count == len(self.chunk.data)
                     or session.position == session.stop
                 ):
                     self.chunk.release()
@@ -713,9 +714,7 @@ class Playback:
                     return
                 self.scheduled = self.server.reactor.callLater(0, self.pump)
             else:
-                d = self.server.streams.read(
-                    session, session.position // session.layout.piece_length
-                )
+                d = self.server.streams.read_next(session)
                 self.waiting = d
 
                 def ready(chunk):

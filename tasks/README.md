@@ -47,12 +47,14 @@ Deluge/libtorrent. Фаза завершена: FIFO/lifecycle, native runtime �
 payload FS. Подробности и ограничения — в [отчёте](implementation/phase4-report.md).
 
 Фаза 5: локальная разработка продолжается; LICENSE пользователь создаст позже.
-Для выпуска нужны лицензия, hosted runs и выбранный NAS для финальной нагрузки.
+Для выпуска нужны лицензия, hosted runs и приёмка целевого ПК с HDD.
 Реализованы candidate manifest/checksums, единая версия, product Compose и
 guarded release workflow. Compose recreation прошёл на ARM64 и x86_64 (эмуляция).
 Дополнительно проверены offline backup/restore; добавлены delivery/migration и
 нагрузочный harness. 900 с с pieces 1 MiB прошли на отдельном staged artifact;
-64-KiB throughput остаётся ограничением, фаза не завершена.
+добавлен direct-read готовых файлов с ~50 Mbit/s на поток при 64-KiB pieces
+за 900 секунд и 1000 отмен. Целевая HDD-приёмка учитывается отдельно;
+фаза не завершена.
 [Подробности](implementation/phase5-report.md).
 
 ## Обязательные сквозные результаты

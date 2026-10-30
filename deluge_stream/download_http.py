@@ -161,7 +161,7 @@ class Download:
             session = self.session
             self.server.streams.adapter.check(session)
             if self.chunk is not None:
-                offset = session.position % session.layout.piece_length
+                offset = session.position - self.chunk.start
                 count = min(
                     65536,
                     len(self.chunk.data) - offset,
@@ -175,7 +175,7 @@ class Download:
                 self.request.write(block)
                 self.server.streams.advance(session, count)
                 if (
-                    session.position % session.layout.piece_length == 0
+                    offset + count == len(self.chunk.data)
                     or session.position == session.stop
                 ):
                     self.chunk.release()
@@ -218,25 +218,7 @@ class Download:
 
     @defer.inlineCallbacks
     def _read(self):
-        file = self.session.file
-        identities = yield self.server.policy.worker.submit(
-            fingerprints, self.ticket.root, (file,)
-        )
-        if identities != (self.ticket.identities[self.file_number],) or self.closed:
-            raise RuntimeError("operation_conflict")
-        chunk = yield self.server.streams.read(
-            self.session, self.session.position // self.session.layout.piece_length
-        )
-        try:
-            identities = yield self.server.policy.worker.submit(
-                fingerprints, self.ticket.root, (file,)
-            )
-            if identities != (self.ticket.identities[self.file_number],) or self.closed:
-                raise RuntimeError("operation_conflict")
-        except BaseException:
-            chunk.release()
-            raise
-        return chunk
+        return (yield self.server.streams.read_next(self.session))
 
     @defer.inlineCallbacks
     def _verify_all(self):

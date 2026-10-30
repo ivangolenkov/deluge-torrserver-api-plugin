@@ -19,8 +19,15 @@ Hosted run и релиза нет.
 Там же описаны offline backup/restore, `test-delivery` для миграции/замены плагина
 и отдельный `test-performance`; результаты локальной VM не заменяют приёмку ПК/HDD.
 [Сводка A01–A26 и открытые проверки](docs/acceptance.md).
-Нагрузочная приёмка не закрыта: мелкие pieces 64 KiB пока не достигают цели
-50 Mbit/s на поток; успешный локальный 15-минутный тест с pieces 1 MiB этого не отменяет.
+Direct-read готовых файлов прошёл локальную нагрузку: 900 секунд, два потока
+по ~50 Mbit/s с pieces 64 KiB и 1000 отмен. Это не заменяет приёмку целевого ПК/HDD;
+условия стенда и ограничения описаны в отчёте.
+
+Внешнее изменение содержимого payload во время передачи находится вне гарантии
+целостности: соответствие переданных байтов исходному torrent hash в этом случае
+не обещается. Native-проверки готовности, права и обработка lifecycle/I/O ошибок
+сохраняются. Для native-готового файла реализовано прямое чтение с диска;
+для незавершённого файла используется libtorrent piece-reader.
 
 При enable Core открывает `<config deluged>/stream.sqlite`: WAL, последовательные
 миграции, политика временности/публикации, монотонный FIFO-ключ, hash aliases,
@@ -287,8 +294,13 @@ HTTP sources могут обращаться к LAN; поэтому не дав�
 клиентам. Собственные HTTP access logs не пишут query/источники/токены; native
 DEBUG-логи Deluge следует отдельно проверять и редактировать перед публикацией.
 
-Reader ждёт native `have_piece`, читает через `read_piece_alert` и проверяет размер
-и экземпляр. Один native read обслуживает несколько ожидающих клиентов. Смена
+Для незавершённого файла reader ждёт native `have_piece`, читает через
+`read_piece_alert` и проверяет размер и экземпляр. Один native read обслуживает
+несколько ожидающих клиентов. Полностью проверенный Deluge/libtorrent файл читается
+напрямую с диска: два worker-потока, до 16 заданий, блоки до 256 KiB в общем
+payload budget. Готовность проверяется native API, а не размером файла; paused и
+skipped не мешают чтению готовых данных. Safe open запрещает symlinks, проверяет
+inode; recheck/move/remove отменяют передачу. Смена
 позиции внутри одного GET передвигает агрегированное окно; остановка клиента не
 снимает deadlines другого. Preload — disk-backed задача с абсолютным timeout,
 дубликаты того же файла объединяются; чтение payload в RAM для preload не нужно.
@@ -300,8 +312,9 @@ Default окно и preload — 20 MiB; playback cap 8, preload cap 2, payload b
 4096 агрегированных missing-piece deadlines, 10000 файлов и 2 MiB имён metadata,
 32 HTTP connections/requests, 16 MiB входной `.torrent`, 32 MiB общей входной
 памяти, 8 multipart parts, 8 MiB control response, 2 HTTP source fetches и 4 add.
-Слишком большой piece/window отклоняется с `buffer_limit`/`deadline_limit`;
-увеличение логического окна не означает выделение RAM под весь фильм. Бюджет
+Слишком большой native piece/window отклоняется с `buffer_limit`/`deadline_limit`;
+direct-read готового файла не выделяет буфер размером с native piece.
+Увеличение логического окна не означает выделение RAM под весь фильм. Бюджет
 пессимистично учитывает alert-copy, удержанный chunk и ограниченную HTTP-очередь;
 он не ограничивает RSS всего Deluge, native cache, metadata или kernel buffers.
 

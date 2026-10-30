@@ -300,3 +300,152 @@ pieces, сохраняя adapter/alerts/quotas/cancellation и пользова�
 выдачи и освобождение всех chunks/orphan reservations при seek/stop; ни второй
 движок, ни обход AlertManager не допускаются. До этого нагрузочный DoD не закрывается.
 Внешние gates по-прежнему отложены, не подменяются локальными результатами.
+
+## Уточнение контракта: внешнее изменение содержимого payload
+
+Пользователь разрешил игнорировать внешнюю запись в содержимое файлов во время
+скачивания/стриминга. В SPEC (§6.2, ZIP и lifecycle), AGENTS и плане фазы уточнено:
+не требуются обнаружение такой записи, повторное хеширование и непрерывные
+content-fingerprint проверки ради целостности. Соответствие torrent hash при
+внешней записи не гарантируется; ZIP CRC отражает фактически переданные bytes.
+Native readiness до допуска, access/safe open/instance/FIFO, recheck/move/remove
+cancellation и ошибки чтения/преждевременный EOF остаются в контракте. Identity
+witnesses metadata торрента не затронуты. Изменены также README и архитектура.
+
+Это изменение требований/плана, а не реализация будущей оптимизации: серверный
+код, существующие fingerprints, тесты, Makefile и CI не изменены. Direct-read
+готовых файлов пока отсутствует; прирост throughput и закрытие нагрузочного DoD
+не объявляются. Предыдущие runtime результаты остаются историческими, полная
+регрессия ради документального уточнения повторно не требуется.
+
+Документы проверены:
+`docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check-docs VENV=/opt/venv`
+— Passed, 31 Markdown-файл; `git diff --check` — Passed. Использован прежний
+ARM64 test image, пользовательский профиль Deluge не затрагивался.
+
+## Direct-read готовых файлов: реализация и проверки
+
+После отдельного разрешения пользователя реализован `direct_reader.py`:
+native whole-file proof до выбора пути, bounded `pread` вне reactor, два worker,
+16 заданий, блок до 256 KiB, общий payload budget. Каждый блок безопасно открывается
+через dirfd/`O_NOFOLLOW` с проверкой device/inode; mtime и размер не используются
+для постоянного контроля содержимого. Преждевременный EOF и реальные I/O errors
+завершают передачу ошибкой. При отмене capacity/budget удерживаются до фактического
+завершения worker; `server.close()` ждёт drain. Незавершённые файлы сохраняют
+native reader на весь запрос, даже если отдельный Range готов.
+
+Изменены streaming/native adapter, playback и file/ZIP producers: chunks содержат
+абсолютное смещение, чтобы учитывать невыравненные границы файлов. Tickets сохраняют
+device/inode identity, а не content fingerprint. Добавлены unit-тесты worker и
+fallback, native `tests/runtime/direct_reads.py`, общий `make test-direct`;
+download fault injection проверяет также direct reader. README, архитектура и
+`make help` обновлены. CI использует прежний `make check`, включающий новую цель.
+
+Проверенная среда: изолированный Docker ARM64, Debian 12, Python 3.11.2,
+Deluge 2.2.0, libtorrent 2.0.8.0, Twisted 24.11.0; egg установлен в одноразовый
+профиль. Команды:
+
+```sh
+docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint test-direct test-downloads VENV=/opt/venv
+docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 /opt/venv/bin/python -I tests/runtime/performance.py --egg dist/Stream-0.0.1-py3.11.egg --seconds 60 --cycles 100 --piece-kib 64 --output build/performance-direct-arm64-60s.json
+```
+
+Обе команды Passed. Native direct suite проверила paused/skipped playback,
+Range и многофайловый ZIP без `read_piece`, допустимую запись в тот же inode,
+recheck во время заблокированного worker, удержание quota и shutdown drain.
+Downloads suite проверила tickets/HEAD/Range/ZIP, pause/skip, move/recheck/remove,
+ошибку `disk_full` и ZIP64 probe. Это частичные доказательства соответствующих
+сценариев, не приёмка Lampa/Num, целевого HDD или реального ENOSPC.
+
+Короткая диагностика с pieces 64 KiB: 49.999/49.996 Mbit/s, first-byte p95 0.113 s,
+reactor lag p95 0.00345 s, peak reservation 1,310,720 bytes, FD 18 → 18.
+JSON: `build/performance-direct-arm64-60s.json`. Это промежуточный artifact до
+последующих guard/unit изменений; 60 секунд и 100 отмен не закрывают нагрузочный DoD.
+Полная регрессия и длительный прогон отражаются ниже после их завершения.
+
+После добавления single-read guard и timeout direct jobs команда
+`docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint format-check test-unit VENV=/opt/venv`
+прошла: 243 unit tests, 100 Python-файлов форматированы. Unit-проверки отдельно
+покрывают ready Range в незавершённом файле (native fallback), whole-file direct
+selection, утрату native readiness после I/O, timeout, concurrent-read rejection,
+cancel/drain accounting, quota/budget, замену inode и unsafe paths.
+
+### Общая регрессия direct-read
+
+```sh
+docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv > build/check-direct-arm64.log 2>&1
+docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make test-delivery candidate-check VENV=/opt/venv > build/check-direct-arm64-delivery-retry.log 2>&1
+docker run --rm --platform linux/amd64 --network none -v "$PWD:/work" deluge-stream-phase5-check:amd64 make check VENV=/opt/venv > build/check-direct-amd64.log 2>&1
+```
+
+- ARM64: 243 unit + 87 persistence, native integration, downloads, direct suite,
+  Chromium, installed core/web smoke и packaging прошли. Первый прогон остановился
+  на candidate source check: timeout был добавлен после сборки egg; этот устаревший
+  artifact корректно отклонён. Повтор на неизменном коде дошёл до delivery, где
+  daemon один раз завершился с `SIGABRT` (-6) после disable при остановке. Причина
+  native abort не установлена; успешным `make check` этот запуск не объявляется.
+  Повтор именно `test-delivery candidate-check` прошёл, включая migration,
+  disable/re-enable/uninstall, smoke и проверку candidate. Итоговое покрытие
+  обязательных целей есть, но нестабильность native shutdown остаётся ограничением.
+- x86_64 (эмуляция): полный `make check` Passed, те же 243 unit + 87 persistence,
+  native/browser/direct/delivery/packaging/smoke/candidate. Это не hosted run.
+- A01/A03–A08/A10/A14/A16–A25 проверены в объёме существующих автоматических
+  сценариев; direct suite дополнительно покрывает A03/A07/A08/A19/A20/A21/A25.
+  A22 дополнен unit safe-open/replacement tests, A26 — direct `disk_full` injection,
+  не настоящим ENOSPC. Открытые части A01–A26 сохранены в `docs/acceptance.md`.
+
+Длительный `make test-performance ... LOAD_SECONDS=900 LOAD_CYCLES=1000
+LOAD_PIECE_KIB=64 LOAD_REPORT=build/performance-direct-arm64-900s.json` завершился
+ошибкой `ConnectionResetError` в одном из reader. Он не засчитывается; причины
+завершения передач в прежнем harness не сохранялись. Добавлено сохранение последних
+32 transfer-end событий и failure diagnostics в JSON; исключение не скрывается.
+Последующий 180-секундный запуск Passed:
+
+```sh
+docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 /opt/venv/bin/python -I tests/runtime/performance.py --egg dist/Stream-0.0.1-py3.11.egg --seconds 180 --cycles 100 --piece-kib 64 --output build/performance-direct-arm64-180s.json
+```
+
+First-byte p95 0.121 s, reactor lag p95 0.00185 s, peak reservation 1,310,720 bytes,
+FD 18 → 18; final sessions/jobs/reservations/deadlines равны нулю.
+Повтор длительной нагрузки учитывается отдельно после завершения.
+
+### Итог длительного direct-read прогона
+
+Повтор без предотвращения сна также завершился `ConnectionResetError`; transfer
+log установил `reason=expired`, а не I/O/readiness error. Следующий диагностический
+прогон измерил расхождение часов: 361.259 s monotonic против 1173.414 s reactor,
+максимальный drift 812.155 s (`build/performance-direct-arm64-900s-clock.json`).
+Непрерывный 15-минутный тест на этом спящем/корректирующем wall-clock VM стенде
+не подтверждается. Таймауты продукта не увеличивались и отмены не отключались.
+
+На macOS применён `caffeinate -i` только на время процесса проверки — без изменения
+постоянных системных настроек. Следующий запуск **Passed**:
+
+```sh
+caffeinate -i docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 /opt/venv/bin/python -I tests/runtime/performance.py --egg dist/Stream-0.0.1-py3.11.egg --seconds 900 --cycles 1000 --piece-kib 64 --output build/performance-direct-arm64-900s-awake.json
+```
+
+- 900 секунд, 1000 отмен, pieces 64 KiB; два потока 49.999857/49.999898 Mbit/s.
+- First-byte p95 0.10290 s; reactor lag p95 0.003935 s; clock drift ≤0.01282 s.
+- Peak payload reservation 1,310,720 bytes; FD 18 → 18, threads 10 → 10.
+- RSS peak до/после 137,752 KiB; это peak процесса, не native heap measurement.
+- Final sessions/piece jobs/direct jobs/deadlines/reservations — ноль.
+- Egg SHA-256 `050e1c04b069ff870423455a1629cc021ee998207542e8cd2d025a34fcc1dc40`,
+  копия `build/direct-load-050e1c04b069ff87/Stream-0.0.1-py3.11.egg`.
+- Raw JSON SHA-256 `2076d443674e434642ad8827758e00881f16b8e1efe20d1b522ce1e2e494191b`.
+  В git сохранена компактная сводка `performance-direct-arm64-summary.json`;
+  raw JSON/log и artifact — локальные generated files.
+
+Прежний локальный throughput-дефект готовых файлов с pieces 64 KiB устранён
+direct-read, но приёмка целевого HDD, Lampa/Num, полная native/ZIP memory оценка,
+реальный ENOSPC, LICENSE и hosted GitHub gates остаются открытыми. Единичный
+native `SIGABRT` в delivery не скрыт успешным повтором. Фаза 5 не завершена.
+Для повторения длительной проверки на macOS следует исключить сон VM/host;
+на Linux/HDD проверять стабильность часов стенда, не ослабляя idle timeout.
+
+Финальная команда после изменения diagnostics harness и документации:
+`docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint format-check check-docs candidate-check VENV=/opt/venv`
+— Passed (лог `build/check-direct-final.log`): lint, 100 formatted Python files,
+31 Markdown-файл, пересборка, installed core/web smoke с 20 циклами и candidate
+manifest/checksums. `git diff --check` — Passed. Build/candidate ничего не публикуют;
+профиль пользователя, downloads, tags и внешние репозитории не затрагивались.

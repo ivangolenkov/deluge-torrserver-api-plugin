@@ -89,11 +89,15 @@ def run(reactor, root, egg):
         # end-of-archive) after ZIP headers have already been transmitted.
         adapter = server.streams.adapter
         original_alert_data = adapter.alert_data
+        from deluge_stream import direct_reader
 
-        def disk_full(alert):
+        original_block = direct_reader.read_block
+
+        def disk_full(*_):
             raise RuntimeError("disk_full")
 
         adapter.alert_data = disk_full
+        direct_reader.read_block = disk_full
         try:
             failed_file = yield request(path)
             assert (
@@ -109,6 +113,7 @@ def run(reactor, root, egg):
                 raise AssertionError("failed ZIP was finished successfully")
         finally:
             adapter.alert_data = original_alert_data
+            direct_reader.read_block = original_block
         issued_zip = yield ticket("zip")
         response = yield request(
             urlsplit(issued_zip["url"]).path, headers={"Range": "bytes=0-1"}

@@ -49,11 +49,17 @@ class Session:
     started: float = 0
     sent: int = 0
     first_byte: object = None
+    direct_file: object = None
+    direct_identity: object = None
+    expected_identities: object = None
+    direct_pending: object = None
+    reading: bool = False
 
 
 class Chunk:
-    def __init__(self, engine, data, charge):
+    def __init__(self, engine, data, charge, start=None):
         self.engine, self.data, self.charge = engine, data, charge
+        self.start = start
 
     def release(self):
         if self.charge:
@@ -77,6 +83,7 @@ class Streams:
         self.reserved = 0
         self.timer = None
         self.closed = False
+        self.direct = None
         self.last_error = ""
         self.lag = 0
         self.due = reactor.seconds()
@@ -112,11 +119,6 @@ class Streams:
         native, layout, file, path = opened or self.adapter.open(tid, file_id)
         if not 0 <= start <= stop <= file.size:
             raise ValueError("invalid_range")
-        if (
-            layout.piece_length * 2 + self.HTTP_OVERHEAD
-            > self.policy.config["payload_buffer_budget_mib"] * 1024**2
-        ):
-            raise RuntimeError("buffer_limit")
         session = Session(
             tid,
             rid,
@@ -151,6 +153,20 @@ class Streams:
                 raise RuntimeError("operation_conflict")
             self.adapter.check(session)
             self.sessions[session.token] = session
+            preparing = self._select_reader(session)
+            session.ready_wait = preparing
+            yield preparing.addTimeout(
+                self.policy.config["metadata_timeout_seconds"], self.reactor
+            )
+            session.ready_wait = None
+            self.adapter.check(session)
+            if (
+                session.file.size
+                and session.direct_identity is None
+                and layout.piece_length * 2 + self.HTTP_OVERHEAD
+                > self.policy.config["payload_buffer_budget_mib"] * 1024**2
+            ):
+                raise RuntimeError("buffer_limit")
             self._deadlines()
             if session.closed:
                 raise RuntimeError(self.last_error or "operation_conflict")
@@ -209,6 +225,8 @@ class Streams:
                 self.adapter.check(session)
                 if session.kind in {"file", "zip"}:
                     continue  # Downloads never schedule missing payload.
+                if session.direct_identity is not None:
+                    continue  # A verified whole file needs no missing-piece QoS.
                 if self.adapter.missing_reason(session):
                     continue
                 ahead = self.policy.config["stream_window_mib"] * 1024**2
@@ -346,9 +364,112 @@ class Streams:
                         d.errback(exc)
                 else:
                     if not d.called:
-                        d.callback(Chunk(self, data, charge))
+                        d.callback(
+                            Chunk(
+                                self,
+                                data,
+                                charge,
+                                start=key[2] * session.layout.piece_length,
+                            )
+                        )
                     else:
                         self.reserved -= charge
+
+    @defer.inlineCallbacks
+    def _select_reader(self, session):
+        session.direct_file, session.direct_identity = session.file, None
+        if not getattr(self.adapter, "supports_direct", False) or not session.file.size:
+            return
+        for index, piece in enumerate(session.layout.pieces(session.file)):
+            if not self.adapter.have(session, piece):
+                return  # Whole-file proof only; incomplete playback stays native.
+            if index % 256 == 255:
+                yield task.deferLater(self.reactor, 0, lambda: None)
+                self.adapter.check(session)
+        self.adapter.check(session)
+        if self.direct is None:
+            from .direct_reader import DirectReader
+
+            self.direct = DirectReader(self)
+        from .direct_reader import identity
+
+        pending = self.direct.submit(session, identity, session.path, session.file)
+        session.direct_pending = pending
+        try:
+            value = yield pending
+            self.adapter.check(session)
+            if (
+                session.expected_identities is not None
+                and value != session.expected_identities[session.file.index]
+            ):
+                raise RuntimeError("operation_conflict")
+            session.direct_identity = value
+        finally:
+            session.direct_pending = None
+
+    @defer.inlineCallbacks
+    def read_next(self, session):
+        if session.reading:
+            raise RuntimeError("operation_conflict")
+        session.reading = True
+        try:
+            return (yield self._read_next(session))
+        finally:
+            session.reading = False
+
+    @defer.inlineCallbacks
+    def _read_next(self, session):
+        self.adapter.check(session)
+        if session.direct_file != session.file:
+            yield self._select_reader(session)
+        if session.direct_identity is None:
+            return (
+                yield self.read(
+                    session, session.position // session.layout.piece_length
+                )
+            )
+        from .direct_reader import read_block
+
+        start = session.position
+        count = min(self.direct.BLOCK_SIZE, session.stop - start)
+        # Live native evidence for this block after the initial whole-file proof.
+        for piece in range(
+            start // session.layout.piece_length,
+            (start + count - 1) // session.layout.piece_length + 1,
+        ):
+            if not self.adapter.have(session, piece):
+                raise RuntimeError("file_not_ready")
+        self.adapter.check(session)
+        pending = self.direct.submit(
+            session,
+            read_block,
+            session.path,
+            session.file,
+            session.direct_identity,
+            start - session.file.offset,
+            count,
+            charge=count * 2 + self.HTTP_OVERHEAD,
+            start=start,
+        )
+        session.direct_pending = pending
+        try:
+            chunk = yield pending.addTimeout(
+                self.policy.config["piece_wait_timeout_seconds"], self.reactor
+            )
+            try:
+                self.adapter.check(session)
+                for piece in range(
+                    start // session.layout.piece_length,
+                    (start + count - 1) // session.layout.piece_length + 1,
+                ):
+                    if not self.adapter.have(session, piece):
+                        raise RuntimeError("file_not_ready")
+            except BaseException:
+                chunk.release()
+                raise
+            return chunk
+        finally:
+            session.direct_pending = None
 
     def advance(self, session, count):
         if session.closed:
@@ -377,6 +498,8 @@ class Streams:
             safe_reason(reason) if reason else "complete",
         )
         self.sessions.pop(session.token, None)
+        if session.direct_pending is not None and not session.direct_pending.called:
+            session.direct_pending.cancel()
         if session.ready_wait is not None and not session.ready_wait.called:
             session.ready_wait.cancel()
         if session.pending is not None:
@@ -490,6 +613,10 @@ class Streams:
             "payload_bytes_reserved": self.reserved,
             "deadlines": len(self.owned),
             "preloads": len(self.preloads),
+            "direct_jobs": self.direct.pending if self.direct else 0,
+            "direct_sessions": sum(
+                s.direct_identity is not None for s in self.sessions.values()
+            ),
             "last_error": self.last_error,
             "reactor_lag_seconds": self.lag,
         }
@@ -505,7 +632,7 @@ class Streams:
 
     def close(self):
         if self.closed:
-            return
+            return self.direct.close() if self.direct else defer.succeed(None)
         self.closed = True
         for session in tuple(self.sessions.values()):
             self.stop(session, "disabled", sync=False)
@@ -519,3 +646,4 @@ class Streams:
             self.timer.cancel()
         self.timer = None
         self.adapter.unregister(self._read_alert)
+        return self.direct.close() if self.direct else defer.succeed(None)

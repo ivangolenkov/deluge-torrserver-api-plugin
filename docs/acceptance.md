@@ -49,6 +49,13 @@ Host — macOS ARM64/Docker Linux VM; x86_64 локально эмулирует
 сохранение viewed/options и безопасные disable/uninstall. Исторический artifact
 из local commit не объявляется опубликованным релизом. Точные запуски — в отчёте 5.
 
+`test-direct` дополняет A03/A07/A08/A19/A20/A21/A25: native-готовые paused/skipped
+файлы и многофайловый ZIP читаются без `read_piece`, проверены Range/байты/CRC,
+recheck во время worker I/O, удержание quota до завершения и shutdown drain.
+Unit-тесты проверяют native fallback для незавершённого файла, inode replacement,
+symlinks, timeout и EOF. Это не расширяет гарантии целостности при внешней записи
+в тот же payload inode и не заменяет реальный ENOSPC или HDD-приёмку.
+
 ## Производительность и выпуск
 
 Отдельный `test-performance` сохраняет JSON с размером pieces, длительностью,

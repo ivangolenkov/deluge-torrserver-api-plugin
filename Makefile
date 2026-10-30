@@ -37,6 +37,7 @@ help:
 	@echo 'test-performance: two rate-limited 50 Mbit/s readers; LOAD_SECONDS=900 LOAD_CYCLES=1000.'
 	@echo 'LOAD_REPORT: JSON metrics; short runs are diagnostics, not 15-minute acceptance.'
 	@echo 'test-downloads: native file/ZIP/tickets + large ZIP64; test-web: real Chromium + core/web.'
+	@echo 'test-direct: installed native-ready disk reader, Range/ZIP/recheck/drain barriers.'
 	@echo 'ci-check: Docker build + isolated make check, logs in build/ci (CI_PLATFORM/CI_IMAGE).'
 	@echo 'clean: only default generated build/dist/tool caches (never Deluge profiles).'
 	@echo 'Variables: PYTHON=$(PYTHON) VENV=$(VENV) BUILD_DIR=$(BUILD_DIR) DIST_DIR=$(DIST_DIR)'
@@ -63,6 +64,9 @@ test-downloads: build
 	$(RUN) tools/zip_probe.py
 test-web: build
 	$(RUN) -I tests/runtime/web_browser.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
+.PHONY: test-direct
+test-direct: build
+	$(RUN) -I tests/runtime/direct_reads.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
 test-web-split:
 	$(PYTHON) tools/split_web_check.py --image "$(CI_IMAGE)" --platform "$(CI_PLATFORM)"
 .PHONY: test-performance
@@ -74,7 +78,7 @@ test-delivery: build
 .PHONY: test-delivery-historical
 test-delivery-historical: build
 	$(RUN) tools/historical_delivery.py --egg "$(EGG)" --previous-ref "$(PREVIOUS_REF)" --profile-root "$(TEST_PROFILE_ROOT)"
-test: test-unit test-integration test-downloads test-web
+test: test-unit test-integration test-downloads test-web test-direct
 smoke: build
 	$(RUN) tools/runtime_check.py --mode smoke --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
 check: check-docs lint format-check test smoke test-packaging test-delivery candidate-check

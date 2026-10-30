@@ -330,6 +330,19 @@ reactor. `archive.py` выдаёт STORE/ZIP64 headers/descriptors/central direc
 инкрементально; CRC считается по передаваемым chunks, весь архив не сохраняется.
 Native errors до тела становятся JSON, после начала ZIP соединение обрывается.
 
+Последующее уточнение пользователя снимает требование обнаруживать внешнюю запись
+в содержимое payload во время передачи (см. §6.2 SPEC). Fingerprints проверяют
+device/inode, но не mtime или неизменность содержимого. `direct_reader.py` читает
+полностью native-verified файлы через `pread`: два worker-потока, 16 заданий,
+блоки до 256 KiB, общий payload budget. Каждый блок открывается через dirfd с
+`O_NOFOLLOW`; дескриптор закрывается в worker. Незавершённые файлы сохраняют
+native piece-reader, даже если запрошенный Range уже готов. Проверка whole-file
+выполняется reactor batches по 256 pieces; блок проверяется native API до и после
+I/O. Отменённое задание удерживает capacity/budget до фактического завершения;
+shutdown ждёт drain. Safe path/open, access/instance checks, native readiness, FIFO,
+lifecycle cancellation и обработка I/O errors остаются обязательными. Witnesses
+metadata/identity торрента этим уточнением не отменяются.
+
 `data/stream.js` расширяет Preferences, Details и контекстные меню штатного Deluge,
 не заменяя его state или native priorities. Core RPC выполняет policy mutations
 и ticket admission. Браузер следует обычной ссылке core listener; deluge-web не
