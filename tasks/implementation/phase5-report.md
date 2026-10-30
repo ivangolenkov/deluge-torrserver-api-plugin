@@ -819,3 +819,66 @@ acceptance не подменяются fault injection/локальным fixtur
 проверенную миграцию; delivery использует redeployment/schema fixture.
 Фаза 5 остаётся в работе, технические CI проверки сохранены. Следующий шаг —
 установка нового py3.14 egg пользователем либо отдельная команда на её выполнение.
+
+## Исправление проверки адреса Lampa через корневой URL
+
+По сообщению пользователя Lampa помечала работающий listener как недоступный:
+GET `http://192.168.31.126:8090/` возвращал 404, хотя `/echo` работал.
+Локальная Lampa на `http://localhost:3000/` идентифицирует себя как 3.1.8;
+SHA-256 её app.js: `5539a15f27f9e89abdb69a3e0a663dc8becd30d58c1793effb5d992cefab278c`.
+Её обработчик настройки сервера (`check`, вызов `torrent_net.native`) проверяет
+корень URL и считает 404 ошибкой; отдельная playback-проверка использует `/echo`.
+
+Изменения:
+- `deluge_stream/torrserver.py`: GET/HEAD `/` — алиас короткого ответа `/echo`
+  (`200`, text/plain, `MatriX.147.1`; HEAD без тела). CORS и OPTIONS остаются
+  штатными; существующая owner-проверка не обходится, данные не раскрываются.
+  Неизвестные пути по-прежнему 404; GUI TorrServer не добавляется.
+- `tests/unit/test_torrserver_discovery.py`: шесть GET/HEAD/OPTIONS сценариев
+  для `/` и `/echo`, тело, Content-Length, CORS, освобождение admission.
+- `tests/runtime/streaming.py`: installed native HTTP regression корня,
+  HEAD/OPTIONS и сохранения 404 неизвестного маршрута. Входит в make check,
+  поэтому новые Make/CI targets не нужны.
+- README, docs/torrserver-contract и индекс фаз описывают проверку корня.
+
+Реальный браузерный сценарий (Playwright, не mock HTTP):
+1. Открыта предоставленная Lampa, завершён стартовый выбор языка в тестовом
+   браузере; открыт раздел настроек server через её Settings.create.
+2. Адрес установленной версии `http://192.168.31.126:8090` — запрос GET `/`,
+   HTTP 404, DOM-индикатор `settings-param__status error`.
+3. Исправленный egg запущен в отдельном временном профиле настоящего Deluge
+   Python 3.14 (Arch image), порт контейнера опубликован только на host loopback
+   `127.0.0.1:18090`. Source checkout не импортируется вместо установленного egg.
+4. При смене адреса на `http://127.0.0.1:18090` сама Lampa отправила GET `/`,
+   получила HTTP 200, DOM-индикатор стал `settings-param__status active`.
+   Ответ дополнительно проверен browser fetch: `MatriX.147.1`.
+5. Исходный адрес в storage тестового браузера восстановлен (пустой),
+   временный контейнер остановлен. Рабочий daemon/Web UI пользователя не менялись.
+
+Локальные вспомогательные материалы: `build/lampa-local-app.js`,
+`build/lampa_discovery_server.py`, `build/lampa-discovery-server.log`,
+`build/lampa-root-browser-evidence.json`. Скрипт стенда использовал existing
+research.start/stop, временный профиль и только конфигурацию listener/owner;
+торренты не добавлялись и payload не менялся.
+
+Команды проверок (macOS host, Docker Desktop ARM64; 3.14 x86_64 эмулирован):
+
+```sh
+docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint format-check test-unit VENV=/opt/venv
+caffeinate -i docker run --rm --platform linux/amd64 --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-py314-check:amd64 make check VENV=/opt/venv BUILD_DIR=build/lampa-root314 DIST_DIR=dist/lampa-root314 > build/check-lampa-root314.log 2>&1
+caffeinate -i docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv BUILD_DIR=build/lampa-root311 DIST_DIR=dist/lampa-root311 > build/check-lampa-root311.log 2>&1
+docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check-docs VENV=/opt/venv
+```
+
+Lint/format и 284 unit Passed; Markdown — 31 файл Passed. Полный make check
+3.14 Passed: 284 unit + 87 persistence, installed native streaming (включая
+новые root/HEAD/OPTIONS/unknown-route assertions), retention/lifecycle, downloads,
+direct-read, Chromium, packaging, core/web smoke и delivery/candidate.
+Регрессия полного make check 3.11 ARM64 также Passed (284 unit + 87 persistence,
+native/UI/packaging/delivery/smoke); результаты не являются hosted CI run.
+Проверенный artifact: `dist/lampa-root314/Stream-0.0.0.dev0-py3.14.egg`,
+SHA-256 `70b7796b217788dc3168d7c8d7e973293b88978c829e6bf6e236846352b79fc0`.
+Для A02 подтверждён только этап определения доступности в настройках этой
+версии Lampa. Воспроизведение/перемотка и Num не проверены этим сценарием;
+DoD фазы 5 и полная клиентская приёмка не объявляются завершёнными.
+Ни публикация релиза, ни установка исправления на рабочий сервер не выполнялись.

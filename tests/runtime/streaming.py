@@ -111,6 +111,16 @@ def run(reactor, root, egg):
             return threads.deferToThread(fetch, base, path, data, **kwargs)
 
         assert (yield request("/echo"))[2] == b"MatriX.147.1"
+        status, headers, body = yield request("/")
+        assert status == 200 and body == b"MatriX.147.1"
+        assert headers["Access-Control-Allow-Origin"] == "*"
+        status, headers, body = yield request("/", method="HEAD")
+        assert status == 200 and body == b""
+        assert int(headers["Content-Length"]) == len(b"MatriX.147.1")
+        assert (yield request("/", method="OPTIONS"))[1][
+            "Access-Control-Allow-Origin"
+        ] == "*"
+        assert (yield request("/not-a-torrserver-route"))[0] == 404
         assert (yield request("/echo", method="OPTIONS"))[1][
             "Access-Control-Allow-Origin"
         ] == "*"

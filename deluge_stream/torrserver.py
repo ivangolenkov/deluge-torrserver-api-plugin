@@ -353,7 +353,9 @@ class API(Resource):
 
             return (yield serve(self.server, request, route.removeprefix("/download/")))
         actor = torrents.actor()
-        if route == "/echo" and request.method in (b"GET", b"HEAD"):
+        # Lampa's settings availability check requests the base URL, whereas
+        # its playback handshake uses /echo. Neither exposes torrent data.
+        if route in ("/", "/echo") and request.method in (b"GET", b"HEAD"):
             return b"text/plain", b"MatriX.147.1"
         if route in ("/torrents", "/cache", "/settings", "/viewed", "/torrent/upload"):
             if request.method != b"POST":
