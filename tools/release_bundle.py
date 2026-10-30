@@ -30,13 +30,17 @@ def digest(path):
 
 
 def provenance(root):
+    # This caller-selected checkout may be bind-mounted with a host UID. Trust
+    # only its resolved path for these Git processes, without changing config.
+    command = ["git", "-c", f"safe.directory={root.resolve()}"]
+
     def git(*args):
         return subprocess.check_output(
-            ["git", *args], cwd=root, text=True, stderr=subprocess.PIPE
+            [*command, *args], cwd=root, text=True, stderr=subprocess.PIPE
         ).strip()
 
     paths = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        [*command, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=root,
     ).split(b"\0")
     tree = hashlib.sha256()

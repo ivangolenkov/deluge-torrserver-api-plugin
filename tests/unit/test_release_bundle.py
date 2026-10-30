@@ -1,10 +1,59 @@
 import json
+import subprocess
 import zipfile
 
 import pytest
 
 from tools import release_bundle as bundle
 from tools.version import valid_version
+
+
+def test_provenance_trusts_only_selected_checkout_without_changing_config(
+    tmp_path, monkeypatch
+):
+    # Exercise Git's actual ownership guard, independent of the host's UID/config.
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "0")
+    monkeypatch.delenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", raising=False)
+    root = tmp_path / "checkout with spaces"
+    subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "Isolated ownership fixture",
+        ],
+        cwd=root,
+        check=True,
+    )
+    (root / "payload.txt").write_text("source fixture")
+    config = (root / ".git/config").read_bytes()
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+
+    def untrusted():
+        result = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True
+        )
+        assert result.returncode != 0 and "dubious ownership" in result.stderr
+
+    untrusted()
+    source = bundle.provenance(root)
+    assert len(source["commit"]) == 40
+    assert len(source["tree_sha256"]) == 64
+    assert source["dirty"]
+    assert bundle.provenance(root) == source
+    assert (root / ".git/config").read_bytes() == config
+    untrusted()  # No persistent or wildcard trust leaked to later Git processes.
 
 
 @pytest.mark.parametrize("version", ["0.0.1", "1.2.3rc1", "1.0.0a0", "1.0.0b1"])

@@ -59,6 +59,11 @@ guarded release workflow. Compose recreation прошёл на ARM64 и x86_64 (
 фаза не завершена.
 [Подробности](implementation/phase5-report.md).
 
+Исправлен отказ CI candidate-check при чужом UID владельца bind mount `/work`:
+Git доверяет только выбранному checkout на время чтения provenance, без изменения
+global/system config. Регрессия с ownership guard и настоящий UID mismatch
+проверены локально; это не подтверждение нового hosted run.
+
 ## Обязательные сквозные результаты
 
 ### README

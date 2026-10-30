@@ -534,3 +534,53 @@ payload/native код не менялся. A01–A26 остаются подтв
 Фаза 5 остаётся в работе: полный DoD и история реальных hosted runs не подменяются
 разрешением публикации без ручной приёмки. Следующий выпуск по тегу требует
 успешных технических jobs, но не отдельного ручного approval.
+
+## Исправление Git dubious ownership в candidate-check
+
+Пользователь сообщил отказ `make ci-check`: тесты и delivery прошли, но
+`release_bundle.create → provenance → git ls-files` завершился кодом 128:
+`fatal: detected dubious ownership in repository at '/work'`. Разные SHA-256
+двух ZIP-сборок при `member_contents_identical: true` не были причиной отказа:
+timestamps архивов по-прежнему не нормализуются.
+
+`tools/release_bundle.py` теперь передаёт всем Git-вызовам provenance
+`-c safe.directory=<root.resolve()>`. Доверие ограничено точным абсолютным путём
+выбранного checkout и временем конкретных процессов. Global/system/local config
+не меняется, wildcard trust не добавляется, source/dirty/commit/checksum проверки
+сохранены. Решение работает в исходном CI image без его пересборки, поскольку
+исправленный инструмент читается из bind mount. Dockerfile, workflow и Makefile
+менять не потребовалось. README и delivery описывают поведение.
+
+Добавлен unit-тест с настоящим Git и `GIT_TEST_ASSUME_DIFFERENT_OWNER=1`:
+обычный Git отвергает fixture, provenance работает с путём с пробелами,
+возвращает стабильный fingerprint, не меняет `.git/config`, а последующий обычный
+Git всё ещё отвергает fixture. Git configuration теста изолирована от хоста.
+Первый общий запуск под принудительным guard выявил наследование этой переменной
+на стадии создания fixture; тест исправлен, итоговый запуск Passed.
+
+Среда: прежний Debian 12 ARM64 Docker image, Python 3.11.2, Deluge 2.2.0,
+libtorrent 2.0.8.0, Twisted 24.11.0. Команды:
+
+```sh
+docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint format-check test-unit VENV=/opt/venv
+caffeinate -i docker run --rm --network none -e GIT_TEST_ASSUME_DIFFERENT_OWNER=1 -e GIT_CONFIG_NOSYSTEM=1 -e GIT_CONFIG_GLOBAL=/dev/null -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv > build/check-git-ownership-arm64.log 2>&1
+```
+
+Passed: 250 unit + 87 persistence, lint/format/docs, native streaming/downloads/
+direct/retention, Chromium, packaging/delivery, smoke и candidate manifest.
+Ключевая стадия `git ls-files`/provenance теперь выполняется даже при принудительно
+включённом ownership guard без global/system safe-directory исключений.
+
+Дополнительно в том же контейнере через `/opt/venv/bin/python -c` создан
+одноразовый Git-репозиторий `stream-git-owner-*/foreign checkout`, выполнен
+fixture-only empty commit, затем `os.chown(root, 65534, 65534)` и такой же chown
+для `.git`. Процесс выполнялся с UID 0, без искусственного ownership flag.
+Обычный Git реально отказал по UID mismatch; `provenance(root)` вернул clean
+commit/fingerprint; обычный Git после вызова остался недоверяющим. Passed.
+Пользовательский checkout и его ownership/config этим экспериментом не менялись.
+
+A01–A26 повторно покрыты только в объёме общего автоматизированного набора;
+bugfix относится к поставке/provenance, не меняет runtime-контракт. x86_64,
+нагрузка и реальный GitHub run не повторялись; независимый от архитектуры Git
+аргумент подтверждён unit/native subprocess проверками. Фаза 5 остаётся в работе.
+Следующий шаг — повторить пользовательский `make ci-check`/GitHub job с исправлением.

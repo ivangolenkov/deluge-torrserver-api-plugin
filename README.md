@@ -179,6 +179,10 @@ Playwright 1.56.0. Docker runtime устанавливает их при сбо�
 
 Сборка и тесты не должны менять пользовательский профиль Deluge, скачанные файлы или автоматически публиковать релиз.
 
+Для provenance внутри Docker сборщик передаёт Git доверие только к текущему
+checkout через `-c safe.directory=<путь>`. Различие UID владельца bind mount
+не требует менять Git-конфигурацию хоста или добавлять `safe.directory=*`.
+
 ## Автоматизация и релизы
 
 Добавлен [.github/workflows/checks.yml](.github/workflows/checks.yml): PR,

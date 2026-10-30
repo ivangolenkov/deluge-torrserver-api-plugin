@@ -29,6 +29,11 @@ Manifest содержит commit, dirty flag и fingerprint текущих не�
 SHA-256 egg и узкий runtime-контракт, **не сертификат приёмки**.
 Изменили исходники после сборки — пересоздайте комплект.
 
+При чтении provenance Git получает process-local `safe.directory` только для
+абсолютного пути выбранного checkout. Это поддерживает bind mount `/work` с UID
+владельца хоста, отличным от UID контейнера. Global/system Git config не меняется;
+доверие ко всем репозиториям (`safe.directory=*`) не требуется.
+
 `make test-packaging` сравнивает две сборки в чистых временных каталогах из
 текущего source snapshot. Проверяет равенство содержимого ZIP entries, отдельно
 выводит SHA-256 и побайтовое равенство. Это не чистый Git checkout, если текущая
