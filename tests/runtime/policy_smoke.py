@@ -21,6 +21,7 @@ from twisted.internet import defer, task, threads
 parser = argparse.ArgumentParser()
 parser.add_argument("--egg", required=True)
 parser.add_argument("--profile-root", default="")
+parser.add_argument("--previous-egg", default="")
 args = parser.parse_args()
 logging.getLogger("deluge.ui.client").setLevel(logging.CRITICAL)
 

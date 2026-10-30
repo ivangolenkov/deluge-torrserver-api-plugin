@@ -50,6 +50,9 @@ payload FS. Подробности и ограничения — в [отчёт�
 Для выпуска нужны лицензия, hosted runs и выбранный NAS для финальной нагрузки.
 Реализованы candidate manifest/checksums, единая версия, product Compose и
 guarded release workflow. Compose recreation прошёл на ARM64 и x86_64 (эмуляция).
+Дополнительно проверены offline backup/restore; добавлены delivery/migration и
+нагрузочный harness. 900 с с pieces 1 MiB прошли на отдельном staged artifact;
+64-KiB throughput остаётся ограничением, фаза не завершена.
 [Подробности](implementation/phase5-report.md).
 
 ## Обязательные сквозные результаты

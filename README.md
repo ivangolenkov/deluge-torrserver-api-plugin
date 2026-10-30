@@ -11,11 +11,16 @@ SQLite, FIFO и встроенные TorrServer HTTP/Range/preload с неско
 Hosted run и релиза нет.
 
 Фаза 5 в работе: локальная упаковка и автоматизация продолжаются, LICENSE
-пользователь создаст позже. Для выпуска также нужны GitHub runs и NAS-приёмка.
+пользователь создаст позже. Для выпуска также нужны GitHub runs и приёмка целевого ПК/HDD.
 [Текущий отчёт](tasks/implementation/phase5-report.md).
 
 Локальный candidate, manifest/checksums, Docker Compose, volumes и release gates:
 [инструкция поставки](docs/delivery.md). Это ещё не завершённая фаза 5 и не релиз.
+Там же описаны offline backup/restore, `test-delivery` для миграции/замены плагина
+и отдельный `test-performance`; результаты локальной VM не заменяют приёмку ПК/HDD.
+[Сводка A01–A26 и открытые проверки](docs/acceptance.md).
+Нагрузочная приёмка не закрыта: мелкие pieces 64 KiB пока не достигают цели
+50 Mbit/s на поток; успешный локальный 15-минутный тест с pieces 1 MiB этого не отменяет.
 
 При enable Core открывает `<config deluged>/stream.sqlite`: WAL, последовательные
 миграции, политика временности/публикации, монотонный FIFO-ключ, hash aliases,

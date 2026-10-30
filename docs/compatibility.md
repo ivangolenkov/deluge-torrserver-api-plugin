@@ -138,8 +138,15 @@ hardlink — только исследовательский кандидат, �
 | packaging | Apache-2.0 OR BSD-2-Clause |
 | typing_extensions | PSF-2.0 |
 | zope.interface | ZPL-2.1 |
-| pyxdg | Metadata сообщает UNKNOWN; необходимо проверить upstream license до поставки |
+| pyxdg | Metadata UNKNOWN; bundled `COPYING` содержит GNU Library GPL v2; per-file notices требуют отдельной сверки |
 
 Системные TLS/SQLite/libc и полный набор notices образа требуют отдельного
 release-аудита. `tools/runtime.Dockerfile` — тестовый образ; корневой `Dockerfile`
 и `compose.yml` — локальный product candidate, не опубликованный релиз.
+
+Дополнительная проверка установленного pyxdg 0.28: файл
+`pyxdg-0.28.dist-info/COPYING` имеет SHA-256
+`d7bf9d064ac3e5840f9dd02422b7eeec4f1fd03f37fadbd043602be5e882304f` и заголовок
+GNU Library General Public License Version 2, June 1991. Это уточняет источник
+лицензионного текста, но не закрывает полный per-file/source/образный аудит и
+не выбирает лицензию самого проекта за владельца.

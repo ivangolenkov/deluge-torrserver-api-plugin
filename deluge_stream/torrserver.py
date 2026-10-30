@@ -293,15 +293,22 @@ class API(Resource):
             request.setResponseCode(503)
             return b""
         self.server.active_requests.add(request)
-        work = defer.maybeDeferred(self._dispatch, request)
+        work = None
 
         def finished(result):
             self.server.active_requests.discard(request)
-            if not work.called:
+            if work is not None and not work.called:
                 work.cancel()
             return None
 
         request.notifyFinish().addBoth(finished)
+        # Admission/producer failure may finish synchronously inside dispatch.
+        # Twisted does not replay notifyFinish for an already finished request.
+        work = defer.maybeDeferred(self._dispatch, request)
+        if (
+            request.finished or getattr(request, "_disconnected", False)
+        ) and not work.called:
+            work.cancel()
 
         def success(result):
             if (

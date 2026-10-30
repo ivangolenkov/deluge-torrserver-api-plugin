@@ -12,6 +12,12 @@ EGG = $(DIST_DIR)/Stream-$(VERSION)-py3.11.egg
 RELEASE_TAG ?= v$(VERSION)
 COMPOSE ?= docker compose
 PRODUCT_IMAGE ?= deluge-stream:local
+LOAD_SECONDS ?= 900
+LOAD_CYCLES ?= 1000
+LOAD_REPORT ?= $(BUILD_DIR)/performance.json
+LOAD_PIECE_KIB ?= 64
+PREVIOUS_EGG ?=
+PREVIOUS_REF ?=
 
 .PHONY: help bootstrap lint format-check check-docs test-unit test-persistence test-integration test-downloads test-web test-web-split test build smoke check ci-check clean
 help:
@@ -27,6 +33,9 @@ help:
 	@echo 'test: unit + integration; check: docs/lint/format/test/build/smoke.'
 	@echo 'test-packaging: two clean-directory builds; check also verifies candidate manifest/checksums.'
 	@echo 'test-docker: isolated product Compose recreation; PRODUCT_IMAGE selects a prebuilt image.'
+	@echo 'test-delivery: installed core replacement/schema migration/disable/uninstall (optional PREVIOUS_EGG).'
+	@echo 'test-performance: two rate-limited 50 Mbit/s readers; LOAD_SECONDS=900 LOAD_CYCLES=1000.'
+	@echo 'LOAD_REPORT: JSON metrics; short runs are diagnostics, not 15-minute acceptance.'
 	@echo 'test-downloads: native file/ZIP/tickets + large ZIP64; test-web: real Chromium + core/web.'
 	@echo 'ci-check: Docker build + isolated make check, logs in build/ci (CI_PLATFORM/CI_IMAGE).'
 	@echo 'clean: only default generated build/dist/tool caches (never Deluge profiles).'
@@ -56,10 +65,19 @@ test-web: build
 	$(RUN) -I tests/runtime/web_browser.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
 test-web-split:
 	$(PYTHON) tools/split_web_check.py --image "$(CI_IMAGE)" --platform "$(CI_PLATFORM)"
+.PHONY: test-performance
+test-performance: build
+	$(RUN) -I tests/runtime/performance.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)" --seconds "$(LOAD_SECONDS)" --cycles "$(LOAD_CYCLES)" --piece-kib "$(LOAD_PIECE_KIB)" --output "$(LOAD_REPORT)"
+.PHONY: test-delivery
+test-delivery: build
+	$(RUN) -I tests/runtime/delivery_lifecycle.py --egg "$(EGG)" --previous-egg "$(PREVIOUS_EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
+.PHONY: test-delivery-historical
+test-delivery-historical: build
+	$(RUN) tools/historical_delivery.py --egg "$(EGG)" --previous-ref "$(PREVIOUS_REF)" --profile-root "$(TEST_PROFILE_ROOT)"
 test: test-unit test-integration test-downloads test-web
 smoke: build
 	$(RUN) tools/runtime_check.py --mode smoke --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
-check: check-docs lint format-check test smoke test-packaging candidate-check
+check: check-docs lint format-check test smoke test-packaging test-delivery candidate-check
 .PHONY: test-packaging
 test-packaging:
 	$(RUN) tools/packaging_check.py

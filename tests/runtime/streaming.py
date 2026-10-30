@@ -130,6 +130,24 @@ def run(reactor, root, egg):
         assert torrent.options["owner"] == "localclient"
         assert Path(torrent.handle.save_path()).parent == root / "downloads"
         assert policy.rows[tid]["published"] and policy.rows[tid]["is_temporary"]
+        original_check = server.streams.adapter.check
+
+        def admission_conflict(session):
+            if session.tid == tid:
+                raise RuntimeError("operation_conflict")
+            return original_check(session)
+
+        server.streams.adapter.check = admission_conflict
+        try:
+            for _ in range(40):
+                failed = yield request(f"/play/{tid}/1")
+                assert failed[0] == 409 and json.loads(failed[2]) == {
+                    "error": "operation_conflict"
+                }, failed
+            yield native.until(reactor, lambda: not server.active_requests)
+            assert not server.streams.sessions
+        finally:
+            server.streams.adapter.check = original_check
         original_rid, fifo = (
             policy.rows[tid]["record_id"],
             policy.rows[tid]["fifo_sequence"],

@@ -180,10 +180,42 @@ def main():
                 "-c",
                 "from pathlib import Path; assert not Path('/downloads').exists()",
             )
+            # Offline snapshot covers BOTH full profiles and native payload together.
+            # Never copy only SQLite while the daemon or a web process is running.
+            compose("down")
+            for mode in ("backup", "restore"):
+                if mode == "restore":
+                    compose("down", "--volumes")  # only this random test project
+                for role in ("core", "web"):
+                    compose(
+                        "run",
+                        "--rm",
+                        "--no-deps",
+                        "--entrypoint",
+                        "python",
+                        "-v",
+                        f"{temporary}:/backup",
+                        "-v",
+                        f"{root / 'tools/volume_snapshot.py'}:/snapshot.py:ro",
+                        role,
+                        "/snapshot.py",
+                        mode,
+                        "--role",
+                        role,
+                    )
+            compose("up", "-d", "--no-build")
+            rpc = connect()
+            restored = until(lambda: rpc.call("stream.get_status", 1, [tid]).get(tid))
+            for key in ("record_id", "is_temporary", "published", "fifo_sequence"):
+                assert restored[key] == before[key], (key, before, restored)
+            assert rpc.call("stream.get_config", 1) == config
+            ticket = rpc.call("stream.create_download_ticket", 1, tid, rid, "file", 1)
+            with urllib.request.urlopen(ticket["url"], timeout=10) as response:
+                assert response.read() == payload
             print(
                 "COMPOSE: non-root core/web, separate payload FS, recreation preserves "
                 "instance/temporary/publication/settings/payload; "
-                "direct ticket bytes passed"
+                "full offline backup + new-volume restore and direct bytes passed"
             )
         except BaseException:
             compose("logs", "--no-color")
