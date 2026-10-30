@@ -46,8 +46,10 @@ Deluge/libtorrent. Фаза завершена: FIFO/lifecycle, native runtime �
 Фаза 4 завершена: ARM64/x86_64 make check и Chromium, split core/web без общего
 payload FS. Подробности и ограничения — в [отчёте](implementation/phase4-report.md).
 
-Фаза 5: локальная разработка продолжается; LICENSE пользователь создаст позже.
-Для выпуска нужны лицензия, hosted runs и приёмка целевого ПК с HDD.
+Фаза 5: локальная разработка продолжается; LICENSE пользователь создаст позже,
+его наличие не является условием выпуска. Ручная/внешняя приёмка ПК/HDD,
+Lampa/Num, аудиты и предварительный hosted dry run не блокируют публикацию;
+технические проверки CI сохраняются, непроверенные сценарии не закрываются.
 Реализованы candidate manifest/checksums, единая версия, product Compose и
 guarded release workflow. Compose recreation прошёл на ARM64 и x86_64 (эмуляция).
 Дополнительно проверены offline backup/restore; добавлены delivery/migration и

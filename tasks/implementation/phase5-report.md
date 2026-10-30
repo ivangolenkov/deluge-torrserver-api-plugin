@@ -4,9 +4,13 @@
 Основание — [план фазы 5](../phase5-packaging-and-release.md), SPEC §§13–16;
 прочитан [отчёт фазы 4](phase4-report.md).
 
-Пользователь отложил создание LICENSE. Агент не назначает лицензию; локальная
-разработка продолжается. Лицензия остаётся условием выпуска, не блокером этой
-разработки. GitHub/NAS/клиентские условия полного DoD остаются открытыми.
+Пользователь отложил создание LICENSE и позднее снял требование его наличия
+для выпуска. Агент не назначает лицензию; её отсутствие не блокирует release-check
+или публикацию. Позднее сняты все ручные/внешние условия публикации; технический CI
+сохранён. Аудит зависимостей и GitHub/ПК-HDD/клиентские части DoD не объявлены
+выполненными и остаются ограничениями, но не ручными release-gates.
+Ниже сохранены исторические результаты прежнего LICENSE gate; актуальное
+изменение описано в разделе «LICENSE больше не обязательный release-gate».
 
 ## Реализовано
 
@@ -18,7 +22,8 @@
   копируется только если непустой; отсутствующая лицензия не выдумывается.
   Manifest фиксирует commit/dirty/source fingerprint, runtime-контракт и checksum,
   но прямо отказывается от объявления приёмки.
-- `release-check`: candidate + LICENSE/clean source/tag gates без публикации;
+- `release-check`: candidate + clean source/tag gates без публикации; LICENSE
+  необязателен, но при наличии его checksum/содержимое проверяются;
   `release-verify`: проверяет существующий artifact и smoke **без пересборки**.
   `test-packaging` сравнивает две clean-directory сборки и отдельно содержимое
   entries/полные hashes. ZIP timestamps не нормализуются, bit reproducibility
@@ -449,3 +454,83 @@ native `SIGABRT` в delivery не скрыт успешным повтором. 
 31 Markdown-файл, пересборка, installed core/web smoke с 20 циклами и candidate
 manifest/checksums. `git diff --check` — Passed. Build/candidate ничего не публикуют;
 профиль пользователя, downloads, tags и внешние репозитории не затрагивались.
+
+## LICENSE больше не обязательный release-gate
+
+По прямой команде пользователя наличие LICENSE проекта больше не требуется
+для строгой проверки или публикации: пользователь добавит его позже. Удалён
+только соответствующий отказ в `tools/release_bundle.py`. При наличии LICENSE
+по-прежнему копируется в комплект, включается в checksums и сверяется с исходником;
+при отсутствии manifest содержит `license_sha256: null`. Лицензия не назначалась,
+аудит зависимостей и все остальные release-gates не отменены.
+
+`tests/unit/test_release_bundle.py` проверяет strict verification без LICENSE
+на clean fixture, отказы по dirty source и неправильному тегу без LICENSE,
+проверку необязательного LICENSE при изменении source/bundle. Fixtures не являются
+проверкой hosted GitHub workflow. Publisher уже поддерживал комплект без LICENSE,
+а release workflow вызывает общий strict verifier: изменений YAML не потребовалось.
+Обновлены Makefile help, SPEC, README, delivery/acceptance, план и индексы фаз.
+Ранние LICENSE-отказы выше сохранены как исторические и более не являются DoD.
+
+Проверка в прежнем изолированном Debian 12 ARM64 Docker runtime
+(Python 3.11.2, Deluge 2.2.0, libtorrent 2.0.8.0, Twisted 24.11.0):
+
+```sh
+caffeinate -i docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv > build/check-optional-license-arm64.log 2>&1
+```
+
+Passed: 247 unit + 87 persistence, native integration/download/direct tests,
+Chromium, packaging/delivery, installed core/web smoke и candidate manifest.
+Lint/format/check-docs Passed (100 Python / 31 Markdown). Дополнительно через
+`subprocess.run` в том же image вызван
+`/opt/venv/bin/python tools/release_bundle.py --dist dist --strict --tag v0.0.1`:
+подтверждён ожидаемый отказ `release requires a clean source checkout`,
+а не прежнее требование LICENSE. Текущее дерево намеренно не коммитилось ради
+проверки; реальный успешный release-check чистого checkout не объявляется.
+
+A01–A26 повторно покрыты в объёме общего автоматического набора; этот запрос
+меняет только release policy, не runtime-контракты и не открытые части приёмки.
+x86_64 и длительная нагрузка заново не запускались: reader/native код не менялся,
+предыдущие доказательства сохранены. Публикация/теги/внешний репозиторий не создавались.
+Фаза 5 остаётся в работе; следующий шаг — остальные gates без требования LICENSE.
+
+## Ручная/внешняя приёмка больше не блокирует публикацию
+
+Пользователь уточнил объём снятия gates: убрать условия приёмки, но сохранить
+технические проверки artifacts и CI. Поэтому из `.github/workflows/release.yml`
+удалены `environment: release` и проверка `RELEASE_ACCEPTANCE_APPROVED`.
+HDD/Lampa/Num, аудиты и предварительный hosted dry run больше не являются
+обязательным разрешением на выпуск. Их отсутствие сохраняется в документации
+как непроверенная граница, не превращается в Passed и не закрывает полный DoD.
+
+Не менялись обязательные checks того же commit, verify/smoke без пересборки,
+проверки версии/тега/checksums/чистого checkout, публикация только по push тега,
+непубликующий workflow_dispatch и защита assets от перезаписи. Пользовательская
+команда не разрешает сейчас создать/отправить тег или опубликовать релиз.
+
+Обновлены SPEC, README, delivery/acceptance/client-acceptance, план и индексы фаз.
+`tools/release_bundle.py` больше не называет ручную приёмку gate в release notes.
+Добавлены статические wiring-тесты `tests/unit/test_release_workflow.py`, обновлены
+`test_ci.py` и проверка release notes в `test_release_bundle.py`. Они подтверждают
+отсутствие approval и сохранение технических зависимостей, но не заменяют реальный
+GitHub Actions run. Существующие внешние настройки GitHub не изменялись.
+Makefile/CI по-прежнему используют общий `make check`; новых целей не требуется.
+
+Проверка в Debian 12 ARM64 image, Python 3.11.2, Deluge 2.2.0,
+libtorrent 2.0.8.0, Twisted 24.11.0:
+
+```sh
+caffeinate -i docker run --rm --network none -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv > build/check-no-acceptance-gates-arm64.log 2>&1
+```
+
+Passed: 249 unit + 87 persistence, lint/format/docs (101 Python / 31 Markdown),
+native streaming/downloads/direct/retention, Chromium, packaging/delivery,
+installed smoke и candidate/checksums. При подготовке устранены import formatting
+и старый unit assert, требовавший удалённый approval; оба ранних запуска
+остановились до runtime и не засчитываются. x86_64/15-minute load не повторялись:
+payload/native код не менялся. A01–A26 остаются подтверждены только в прежнем
+автоматизированном объёме; никакая ручная часть этим изменением не выполнена.
+
+Фаза 5 остаётся в работе: полный DoD и история реальных hosted runs не подменяются
+разрешением публикации без ручной приёмки. Следующий выпуск по тегу требует
+успешных технических jobs, но не отдельного ручного approval.

@@ -28,7 +28,8 @@ Recovery-блокер снят: остаточные native piece priorities с�
 DoD фазы 3; её ARM64/x86_64 и браузерные проверки завершены. Отложенные проверки
 фазы 3 не отменены.
 [Фаза 5](phase5-report.md) в работе: LICENSE пользователь создаст позже;
-это не блокирует локальную разработку. Hosted GitHub/целевой ПК-HDD gates открыты.
+его отсутствие не блокирует разработку или выпуск. Ручные/внешние release-gates
+сняты; приёмка ПК/HDD/Lampa/Num и аудит остаются непроверенными границами.
 В продолжении проверены offline backup/restore и delivery/migration/uninstall,
 исправлен HTTP admission leak; 900-секундный local load с крупными pieces прошёл,
 добавлен direct-read готовых файлов: 64-KiB тест достиг ~50 Mbit/s на каждый поток

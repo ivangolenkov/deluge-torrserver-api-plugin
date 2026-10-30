@@ -23,7 +23,7 @@ PREVIOUS_REF ?=
 help:
 	@echo 'docker-build/up/down: product Compose; prepare RPC secret; configure public_base_url in UI.'
 	@echo 'candidate-check: build + installed smoke + manifest/checksums (LICENSE may be deferred).'
-	@echo 'release-check: candidate-check + LICENSE/clean checkout/tag gates; never publishes.'
+	@echo 'release-check: candidate-check + clean checkout/tag gates; LICENSE optional; never publishes.'
 	@echo 'Stream: core/web + FIFO + TorrServer HTTP/streaming; client acceptance pending.'
 	@echo 'bootstrap: venv + pinned tools; Linux runtime also needs python3-libtorrent.'
 	@echo 'lint format-check check-docs test-unit: offline source checks after bootstrap.'

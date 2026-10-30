@@ -44,11 +44,28 @@ def delivery(tmp_path, monkeypatch):
     return root, dist
 
 
-def test_candidate_without_license_is_not_release_ready(delivery):
+def test_release_without_license_is_allowed(delivery):
     root, dist = delivery
-    assert bundle.verify(dist, root=root)["license_sha256"] is None
-    with pytest.raises(ValueError, match="LICENSE"):
-        bundle.verify(dist, strict=True, root=root)
+    manifest = bundle.verify(dist, strict=True, tag=f"v{bundle.VERSION}", root=root)
+    assert manifest["license_sha256"] is None
+    assert not (dist / "LICENSE").exists()
+    assert "LICENSE" not in (dist / "SHA256SUMS").read_text()
+
+
+def test_release_without_license_still_requires_clean_source(delivery, monkeypatch):
+    root, dist = delivery
+    monkeypatch.setattr(
+        bundle, "provenance", lambda root: {"commit": "a" * 40, "dirty": True}
+    )
+    bundle.create(dist, root)
+    with pytest.raises(ValueError, match="clean source"):
+        bundle.verify(dist, strict=True, tag=f"v{bundle.VERSION}", root=root)
+
+
+def test_release_without_license_still_checks_tag(delivery):
+    root, dist = delivery
+    with pytest.raises(ValueError, match="tag/version"):
+        bundle.verify(dist, strict=True, tag="v9.9.9", root=root)
 
 
 def test_licensed_clean_bundle_and_tag(delivery):
@@ -58,6 +75,16 @@ def test_licensed_clean_bundle_and_tag(delivery):
     bundle.verify(dist, strict=True, tag=f"v{bundle.VERSION}", root=root)
     with pytest.raises(ValueError, match="tag/version"):
         bundle.verify(dist, tag="v9.9.9", root=root)
+
+
+@pytest.mark.parametrize("changed", ["source", "bundle"])
+def test_optional_license_is_still_verified(delivery, changed):
+    root, dist = delivery
+    (root / "LICENSE").write_text("Test license fixture; not a project license")
+    bundle.create(dist, root)
+    ((root if changed == "source" else dist) / "LICENSE").write_text("Changed")
+    with pytest.raises(ValueError, match="license mismatch|checksum mismatch"):
+        bundle.verify(dist, strict=True, root=root)
 
 
 @pytest.mark.parametrize(
@@ -101,3 +128,6 @@ def test_manifest_is_not_acceptance_claim(delivery):
     _, dist = delivery
     manifest = json.loads((dist / "compatibility.json").read_text())
     assert "Not certified" in manifest["acceptance"]
+    notes = (dist / "RELEASE-NOTES.md").read_text()
+    assert "not a publication prerequisite" in notes
+    assert "remain separate release gates" not in notes

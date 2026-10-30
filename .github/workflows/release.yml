@@ -45,7 +45,6 @@ jobs:
   publish:
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: verify
-    environment: release
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -57,10 +56,6 @@ jobs:
         with:
           name: verified-release
           path: dist
-      - name: Require owner acceptance of external release gates
-        env:
-          APPROVED: ${{ vars.RELEASE_ACCEPTANCE_APPROVED }}
-        run: test "$APPROVED" = true
       - name: Publish checked bytes without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}

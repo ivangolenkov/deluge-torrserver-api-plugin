@@ -65,6 +65,12 @@ counter. Прогон с мелкими pieces, не достигший скор
 [инструкции](delivery.md). Native disk blocks не равны всей памяти libtorrent.
 
 Не закрыты: полный client acceptance, реальный HDD-стенд, полный native memory/
-ZIP measurement, лицензия владельца и полный source/notices аудит, hosted checks
-и release dry run. GitHub и LICENSE пользователь создаст позже. Никаких ссылок
+ZIP measurement, полный source/notices аудит зависимостей, hosted checks
+и release dry run. GitHub и LICENSE пользователь создаст позже; отсутствие LICENSE
+проекта по его решению не блокирует выпуск. Никаких ссылок
 на несуществующие releases или успешные hosted runs здесь нет.
+
+По последующему решению владельца все перечисленные ручные/внешние проверки —
+не условия публикации, а открытые результаты приёмки и ограничения. Выпуск
+сохраняет обязательные технические CI/tests/smoke/version/checksum проверки;
+ручное подтверждение приёмки в release workflow не требуется.

@@ -126,7 +126,8 @@ def create(dist, root=ROOT):
         f"# Stream {VERSION}: local delivery candidate\n\n"
         "Install the same Python 3.11 egg in core and separate Web UI profiles.\n"
         "Runtime contract: Linux, Deluge 2.2.0, libtorrent 2.0.8.0, Twisted 24.11.0.\n"
-        "Lampa/Num, NAS and hosted acceptance remain separate release gates.\n"
+        "Unverified Lampa/Num and target HDD acceptance is documented, "
+        "not a publication prerequisite.\n"
         "Back up the complete stopped Deluge profile and downloads before updating.\n"
         "Explicit plugin disable resets instance policy/publication/metadata/viewed.\n"
         "This candidate is not an announcement of publication or release readiness.\n"
@@ -176,8 +177,6 @@ def verify(dist, strict=False, tag=None, root=ROOT):
     if tag is not None and tag != f"v{VERSION}":
         raise ValueError("tag/version mismatch")
     if strict:
-        if manifest["license_sha256"] is None:
-            raise ValueError("LICENSE is required for release readiness")
         if manifest["source"]["dirty"]:
             raise ValueError("release requires a clean source checkout")
     return manifest

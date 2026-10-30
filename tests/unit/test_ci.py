@@ -51,8 +51,6 @@ def test_release_workflow_cannot_publish_from_manual_or_pr_runs():
     assert "uses: ./.github/workflows/checks.yml" in text
     assert "github.event_name == 'push' && github.ref_type == 'tag'" in text
     assert "make release-verify" in text and "no rebuild" in text
-    assert "environment: release" in text
-    assert "RELEASE_ACCEPTANCE_APPROVED" in text
     assert "--clobber" not in text
     assert text.count("contents: write") == 1
 

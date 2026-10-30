@@ -11,7 +11,10 @@ SQLite, FIFO и встроенные TorrServer HTTP/Range/preload с неско
 Hosted run и релиза нет.
 
 Фаза 5 в работе: локальная упаковка и автоматизация продолжаются, LICENSE
-пользователь создаст позже. Для выпуска также нужны GitHub runs и приёмка целевого ПК/HDD.
+пользователь создаст позже; его отсутствие не блокирует выпуск. По решению
+пользователя HDD/Lampa/Num-приёмка, аудиты и предварительный hosted dry run
+не блокируют публикацию; непроверенные сценарии остаются ограничениями.
+Технические CI-проверки, smoke, версия/тег и checksums обязательны.
 [Текущий отчёт](tasks/implementation/phase5-report.md).
 
 Локальный candidate, manifest/checksums, Docker Compose, volumes и release gates:
