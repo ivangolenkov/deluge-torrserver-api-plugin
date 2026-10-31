@@ -90,6 +90,13 @@ read-only native file priorities при пустом кэше, не вызыва
 Native-сценарий metadata exchange → Range без UI status getter и полные
 make check 3.11/3.14 прошли (290 unit + 87 persistence для каждого профиля).
 
+По следующему запросу добавлено ожидание действительно отсутствующей metadata:
+pending DTO не содержит truthy `file_stats: []`, file-list get использует short-poll
+до 1 секунды (HTTP budget Lampa 2 секунды), file-dependent маршруты ждут до
+metadata_timeout_seconds с отменой и проверкой identity. Локальная Lampa дождалась
+metadata после ~33 секунд и показала файлы; оба make check Passed
+(302 unit + 87 persistence на каждом Python). Проверки — в отчёте фазы 5.
+
 ## Обязательные сквозные результаты
 
 ### README

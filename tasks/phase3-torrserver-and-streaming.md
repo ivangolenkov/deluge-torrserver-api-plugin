@@ -19,6 +19,9 @@ piece priorities допустимы, собственный recovery journal/н�
 - Сохранить правила публикации, владельца, постоянства и повторного add; не раскрывать через TorrServer произвольные торренты daemon.
 - Использовать effective publication PolicyService, а не только сохранённый published_requested: после crash публикация заблокирована до admin confirmation. Старые QoS overrides не переигрываются; runtime-сессии обнуляются.
 - Реализовать точную нумерацию файлов, hash aliases и обработку ещё не полученных metadata. Не включать pad-файлы как пользовательские.
+  Уточнение по реальной Lampa: pending DTO без file_stats, короткий get-poll до
+  1 секунды и отменяемое ожидание metadata для file-dependent маршрутов до
+  metadata_timeout_seconds; timeout/disconnect/remove/re-add не оставляют jobs.
 - Соблюсти различие rem, drop/wipe и автоматического удаления с данными согласно ТЗ.
 - Поддержать CORS *, OPTIONS, GET/HEAD и все требуемые single Range. Ошибки, Content-Length, Content-Range и выдаваемые байты должны соответствовать контракту.
 

@@ -499,14 +499,24 @@ def run(reactor, root, egg):
         magnet_reply = yield request("/torrents", {"action": "add", "link": magnet_tid})
         assert magnet_reply[0] == 200, magnet_reply
         assert json.loads(magnet_reply[2])["metadata_pending"]
+        early_files = yield request("/torrents", {"action": "get", "hash": magnet_tid})
+        assert early_files[0] == 200
+        assert json.loads(early_files[2])["metadata_pending"]
+        assert "file_stats" not in json.loads(early_files[2])
         mt = component.get("TorrentManager").torrents[magnet_tid]
+        delayed_playlist = request(f"/playlist?hash={magnet_tid}")
+        magnet_read = request(f"/play/{magnet_tid}/1", headers={"Range": "bytes=0-16"})
+        yield native.until(reactor, lambda: len(server.torrents.metadata_waits) == 2)
+        assert not server.streams.sessions and not server.streams.jobs
+        assert not delayed_playlist.called and not magnet_read.called
         mt.handle.connect_peer(("127.0.0.1", seed.listen_port()))
         yield native.until(reactor, lambda: mt.handle.status().has_metadata)
         yield native.until(reactor, lambda: mt.handle.status().state not in (1, 7))
         assert mt.options["file_priorities"] == []
         assert not mt.handle.have_piece(0)
         native_priorities = mt.handle.get_file_priorities()
-        magnet_read = request(f"/play/{magnet_tid}/1", headers={"Range": "bytes=0-16"})
+        playlist_part = yield delayed_playlist
+        assert playlist_part[0] == 200 and b"index=1" in playlist_part[2]
         yield native.until(
             reactor, lambda: bool(server.streams.jobs) or magnet_read.called
         )
@@ -516,6 +526,8 @@ def run(reactor, root, egg):
         assert magnet_part[0] == 206 and magnet_part[2] == b"\x01" * 17, magnet_part
         assert mt.options["file_priorities"] == []
         assert mt.handle.get_file_priorities() == native_priorities
+        ready_files = yield request("/torrents", {"action": "get", "hash": magnet_tid})
+        assert ready_files[0] == 200 and json.loads(ready_files[2])["file_stats"]
         print(
             "MAGNET STREAMING: metadata learned; empty Deluge priorities cache; "
             "native incomplete Range delivered without changing file priorities"
@@ -531,16 +543,40 @@ def run(reactor, root, egg):
         pending = yield request("/torrents", {"action": "add", "link": pending_hash})
         assert pending[0] == 200, pending
         pending_dto = json.loads(pending[2])
-        assert pending_dto["metadata_pending"] and pending_dto["file_stats"] == []
+        assert pending_dto["metadata_pending"] and "file_stats" not in pending_dto
         assert policy.rows[pending_hash]["is_temporary"]
         pending_stat = yield request(f"/stream?link={pending_hash}&index=1&stat")
         assert pending_stat[0] == 200 and json.loads(pending_stat[2])["stat"] == 1
+        yield policy.set_config({"metadata_timeout_seconds": 1}, ("localclient", True))
         missing_metadata = yield request(f"/play/{pending_hash}/1")
-        assert missing_metadata[0] == 409
-        assert json.loads(missing_metadata[2])["error"] == "metadata_pending"
+        assert missing_metadata[0] == 504, missing_metadata
+        assert json.loads(missing_metadata[2])["error"] == "timeout"
+        assert not server.torrents.metadata_waits
+        # A real socket disconnect cancels the metadata wait before its deadline.
+        connection = yield threads.deferToThread(
+            socket.create_connection, ("127.0.0.1", port)
+        )
+        try:
+            connection.sendall(
+                (
+                    f"GET /play/{pending_hash}/1 HTTP/1.1\r\nHost: localhost\r\n\r\n"
+                ).encode()
+            )
+            yield native.until(reactor, lambda: bool(server.torrents.metadata_waits))
+        finally:
+            connection.close()
+        yield native.until(reactor, lambda: not server.torrents.metadata_waits)
+        removal_wait = request(f"/play/{pending_hash}/1")
+        yield native.until(reactor, lambda: bool(server.torrents.metadata_waits))
         assert (yield request("/torrents", {"action": "rem", "hash": pending_hash}))[
             0
         ] == 200
+        assert (yield removal_wait)[0] in (404, 409)
+        assert not server.torrents.metadata_waits
+        print(
+            "METADATA WAIT: short pending poll, delayed playlist/Range, timeout, "
+            "disconnect and native removal passed; no premature playback"
+        )
         print(
             "PRODUCT STREAMING: URL add/repeat, publication/owner, numeric DTO, "
             "playlist/viewed/cache/HEAD/Range, two incomplete readers/window movement, "

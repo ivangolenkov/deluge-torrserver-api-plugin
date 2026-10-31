@@ -952,3 +952,93 @@ A02: выявлен конкретный серверный отказ нача�
 status getter не равен проверке декодирования и воспроизведения TV/PC.
 Полная клиентская приёмка, Num, HDD/memory/ENOSPC и DoD фазы 5 не закрыты.
 На рабочий сервер исправленный код пока не установлен, релиз не опубликован.
+
+## Ожидание metadata и совместимый file-list polling Lampa
+
+По запросу пользователя реализовано асинхронное ожидание списка файлов вместо
+немедленного metadata_pending на file-dependent маршрутах. Сначала проверена
+реальная локальная Lampa 3.1.8 (`http://localhost:3000/`, тот же app.js snapshot):
+`Torserver.files` устанавливает timeout 2000 ms, а file-list polling каждые
+2 секунды проверяет `if (json.file_stats)`. Наш `file_stats: []` истинен в JS:
+клиент преждевременно прекращал polling и открывал пустой список. Увеличение
+одной настройки metadata_timeout_seconds не решало ни это, ни ранний отказ
+mapping на playlist/play/preload/cache.
+
+### Реализация, scope и документы
+
+- `deluge_stream/torrents.py`: bounded wait_metadata (максимум 32 ожидания,
+  reactor timers с интервалом <=100 ms, без sleep/блокирующего I/O). Снимок
+  metadata_timeout_seconds на запрос, по умолчанию 60 секунд; timeout явный.
+  Short-poll get ограничен min(1 second, config), возвращает pending без ошибки.
+  Каждый проход перепроверяет owner/access/publication/record_id и native object;
+  remove/re-add даже того же hash не перехватывает старое ожидание. close отменяет
+  все ожидания. Регистрация/таймер освобождаются при завершении и отмене.
+- Pending DTO пропускает file_stats вместо пустого массива. Поле необязательно
+  по существующей reference schema; ready DTO и 1-based file mapping не меняются.
+  Add/list/stat продолжают возвращать определённое состояние ожидания сразу.
+- `deluge_stream/torrserver.py`: short wait для `/torrents get`, полное ожидание
+  для playlist/m3u, file-dependent stream/play/preload/HEAD, cache, записи viewed.
+  Stat без metadata остаётся быстрым. Отмена HTTP request через существующий
+  notifyFinish отменяет chained metadata Deferred. При исчерпании full deadline
+  HTTP 504 `{"error":"timeout"}`, не немедленный 409 metadata_pending.
+- Само metadata-ожидание не читает payload, не создаёт playback/QoS/debounce и
+  не маскирует файл как готовый. Пока передачи ещё нет, FIFO может удалить
+  экземпляр — это отменяет запрос; waiting не захватывает будущий re-add.
+  Существующие защиты фактической передачи остаются штатными.
+- `tests/unit/test_metadata_wait.py`: 12 сценариев с Clock: metadata arrival,
+  timeout, short-poll, удаление/re-add/native replacement/owner revocation/stop,
+  ограничение очереди, отключение HTTP, close, pending DTO без truthy пустого списка.
+- `tests/runtime/streaming.py`: реальный magnet/local seed с withheld metadata;
+  early get pending, playlist/Range одновременно ожидают до metadata без sessions
+  и piece jobs; затем правильный M3U и byte Range. Добавлены реальный timeout,
+  отключение TCP-клиента и native removal во время ожидания; timers/jobs drained.
+- SPEC §5.2 и план фазы 3 уточнены без замены объёма требований; README,
+  docs/torrserver-contract и индекс фаз описывают клиентский HTTP budget и wait.
+  Make/CI не менялись: новые unit/native проверки уже входят в make check.
+
+### Настоящая Lampa в браузере, без public swarm
+
+Стенд `build/metadata_lampa_server.py`: новый временный профиль установленного
+Python 3.14 egg, настоящий Deluge/libtorrent, локальный seed с двумя файлами
+Episode01.mp4/Episode02.mp4. Это произвольный fixture payload, **не видео для
+проверки playback**. Seed-подключение удерживалось контрольным endpoint тестового
+стенда (не endpoint продукта); порты были опубликованы только на host loopback
+18090/18091. DHT/LSD/UPnP/NAT-PMP отключены. Рабочий сервер не менялся.
+
+Через Playwright вызван `Lampa.Torrent.open(hash, movie)` и наблюдались реальные
+XHR самого клиента (loadend-hook только в тестовом браузере). До release metadata:
+16 ответов HTTP 200 / metadata_pending=true без file_stats, ни одного пустого
+file list/ошибки. Release local peer в 32888 ms от старта. В 34021 ms Lampa получила
+HTTP 200 / metadata_pending=false / file_stats длиной 2; DOM .torrent-files
+показывал оба Episode*.mp4. Metadata waits после этого 0. Источник URL и выбор
+сервера в storage восстановлены, XHR instrumentation снята, контейнер остановлен.
+Доказательства: `build/metadata-lampa-browser-evidence.json`,
+`build/metadata-lampa-server.log`. A02 подтверждён только в части открытия
+ожидающего magnet и списка файлов в локальной Lampa, не воспроизведения/TV/Num.
+
+### Команды и фактический статус
+
+```sh
+docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make lint format-check test-unit VENV=/opt/venv
+caffeinate -i docker run --rm --platform linux/amd64 --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-py314-check:amd64 make check VENV=/opt/venv BUILD_DIR=build/metadata314 DIST_DIR=dist/metadata314 > build/check-metadata314.log 2>&1
+caffeinate -i docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv BUILD_DIR=build/metadata311 DIST_DIR=dist/metadata311 > build/check-metadata311.log 2>&1
+caffeinate -i docker run --rm --name deluge-stream-metadata-lampa --platform linux/amd64 -p 127.0.0.1:18090:8090 -p 127.0.0.1:18091:8091 -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-py314-check:amd64 /opt/venv/bin/python -I /work/build/metadata_lampa_server.py > build/metadata-lampa-server.log 2>&1
+```
+
+Среда прежняя: Arch x86_64/Python 3.14.8/Deluge 2.2.0/libtorrent 2.0.14.0/
+Twisted 26.10.0 под эмуляцией Docker Desktop ARM64; Debian Python 3.11 ARM64
+нативно. Lint/format + 302 unit Passed. Полный make check 3.14 Passed:
+302 unit + 87 persistence, native metadata/magnet/streaming/retention/lifecycle,
+downloads/direct-read, Chromium, packaging/delivery/core-web smoke/candidate.
+Регрессия полного make check 3.11 ARM64 также Passed: 302 unit + 87 persistence,
+native metadata/streaming и остальные обязательные проверки, installed smoke и
+delivery/candidate. Дополнительно make check-docs — 31 Markdown файл Passed,
+git diff --check чист. Это локальные проверки, не hosted CI run.
+
+Проверенный dev artifact: `dist/metadata314/Stream-0.0.0.dev0-py3.14.egg`,
+SHA-256 `a9a4747cd84a256fccf1f5c85bc8b2c9ff78fb5b18c853d91bb18b14c83597d9`.
+Manifest/checksums пересоздаются после итоговых изменений отчёта без пересборки egg.
+
+DoD фазы 5 и остальная клиентская/HDD/memory/ENOSPC приёмка остаются открытыми;
+изменение не добавляет transcoding и не исправляет неподдерживаемый TV кодек.
+На сервер пользователя новая сборка не устанавливалась, Git tags/publish не делались.

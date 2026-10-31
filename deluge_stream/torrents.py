@@ -16,6 +16,7 @@ class Torrents:
         self.add_lock = defer.DeferredLock()
         self.adding = 0
         self.active = set()
+        self.metadata_waits = set()
         self.closed = False
 
     def actor(self):
@@ -78,6 +79,52 @@ class Torrents:
             ):
                 raise ValueError("unsafe_paths")
         return layout
+
+    def wait_metadata(self, row, *, poll=False):
+        """Bounded, cancellable wait; no payload/QoS or transfer activity yet.
+
+        Lampa polls file lists with a two-second request timeout. A short poll
+        returns pending instead of holding that request for the full deadline.
+        """
+        if self.closed:
+            return defer.fail(RuntimeError("operation_conflict"))
+        if len(self.metadata_waits) >= 32:
+            return defer.fail(RuntimeError("source_limit"))
+        work = self._wait_metadata(row, poll=poll)
+        self.metadata_waits.add(work)
+
+        def done(result):
+            self.metadata_waits.discard(work)
+            return result
+
+        work.addBoth(done)
+        return work
+
+    @defer.inlineCallbacks
+    def _wait_metadata(self, row, *, poll):
+        actor = self.actor()
+        tid, rid = row["torrent_id"], row["record_id"]
+        native = None
+        budget = self.policy.config["metadata_timeout_seconds"]
+        deadline = self.reactor.seconds() + (min(1.0, budget) if poll else budget)
+        while True:
+            if self.closed or self.policy.closed or actor != self.actor():
+                raise RuntimeError("operation_conflict")
+            if self.find(tid)["record_id"] != rid:
+                raise RuntimeError("operation_conflict")
+            torrent, info, _ = self.policy.adapter.native_status(tid)
+            if native is None:
+                native = torrent
+            elif native is not torrent:
+                raise RuntimeError("operation_conflict")
+            if info is not None:
+                return True
+            remaining = deadline - self.reactor.seconds()
+            if remaining <= 0:
+                if poll:
+                    return False
+                raise defer.TimeoutError("metadata_timeout")
+            yield task.deferLater(self.reactor, min(0.1, remaining), lambda: None)
 
     @defer.inlineCallbacks
     def _ready(self, tid=None):
@@ -179,6 +226,10 @@ class Torrents:
             "metadata_pending": info is None,
             "save_to_db": not bool(row["is_temporary"]),
         }
+        if info is None:
+            # [] is truthy in JavaScript: Lampa otherwise stops polling and
+            # opens an empty file list. The schema makes this field optional.
+            del result["file_stats"]
         return result
 
     def add(self, source, save, metadata):
@@ -290,4 +341,6 @@ class Torrents:
     def close(self):
         self.closed = True
         self.sources.close()
+        for work in tuple(self.metadata_waits):
+            work.cancel()
         yield defer.DeferredList(tuple(self.active), consumeErrors=True)

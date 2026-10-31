@@ -444,6 +444,7 @@ class API(Resource):
                     )
                 row = torrents.find(data.get("hash"))
                 if action == "get":
+                    yield torrents.wait_metadata(row, poll=True)
                     return self._json((yield torrents.dto(row)))
                 if action == "set":
                     yield torrents.metadata(
@@ -473,6 +474,7 @@ class API(Resource):
                     raise ValueError("unknown_action")
                 file_id = data.get("index", 1)
                 offset = data.get("offset", 0)
+                yield torrents.wait_metadata(row)
                 capacity, filled, pieces = torrents.filled(row, file_id, offset)
                 layout = torrents.mapping(row)
                 external_ids = {
@@ -526,6 +528,7 @@ class API(Resource):
                     raise RuntimeError("operation_conflict")
                 return self._json(result)
             file_id = data.get("file_index")
+            yield torrents.wait_metadata(row)
             if (
                 type(file_id) is not int
                 or file_id not in torrents.mapping(row).payload()
@@ -572,6 +575,7 @@ class API(Resource):
             base = s.config["public_base_url"].rstrip("/")
             if not base:
                 raise RuntimeError("public_url_required")
+            yield torrents.wait_metadata(row)
             lines = ["#EXTM3U"]
             for i, file in torrents.mapping(row).payload().items():
                 title = file.path.replace("\r", " ").replace("\n", " ")
@@ -594,6 +598,7 @@ class API(Resource):
             _, info, _ = s.adapter.native_status(row["torrent_id"])
             if info is None:
                 return self._json((yield torrents.dto(row, file_id)))
+        yield torrents.wait_metadata(row)
         layout = torrents.mapping(row)
         file = layout.payload().get(file_id)
         if file is None:
