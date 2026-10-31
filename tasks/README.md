@@ -29,6 +29,12 @@ hardlink-контракта согласован [сброс связей на �
 | 3 | [TorrServer и streaming QoS](phase3-torrserver-and-streaming.md) | HTTP/Range, preload, reader, несколько просмотров, временные приоритеты | В работе |
 | 4 | [Файлы, ZIP и Web UI](phase4-downloads-zip-and-webui.md) | Готовые downloads, ZIP64, настройки и состояния в стандартном Web UI | Завершена |
 | 5 | [Поставка, нагрузка и автоматический выпуск](phase5-packaging-and-release.md) | Docker, полная приёмка, документация и публикация через GitHub Actions | В работе |
+| 6 | [Метаданные Lampa в Web UI](phase6-metadata-webui.md) | Просмотр и редактирование title/poster/category/data через авторизованный RPC с защитой от конфликтов | Завершена |
+
+Фаза 6 начата по прямому разрешению пользователя до завершения фаз 3/5;
+их незакрытые проверки сохраняются. Фаза 6 завершена: RPC/CAS и редактор,
+полные checks ARM64/3.11 и x86_64/3.11/3.14, Chromium и split core/web.
+Проверки и границы — в [отчёте](implementation/phase6-report.md).
 
 После фазы обновить её файл, эту таблицу и tasks/implementation/phaseN-report.md. Незавершённые пункты не отмечаются выполненными. Значимая частичная работа отражается в том же отчёте со статусом «В работе».
 

@@ -7,7 +7,7 @@ from twisted.internet import defer, task
 from .config import validate
 from .db_worker import DatabaseWorker
 from .path_policy import validate_temporary_paths
-from .repository import Repository, valid_alias
+from .repository import MAX_TEXT, METADATA_FIELDS, Repository, valid_alias
 from .retention import Retention
 from .transfers import TransferRegistry
 
@@ -156,13 +156,16 @@ class PolicyService:
         if not self.adapter.access(tid, actor, write=write):
             raise ValueError("torrent_not_found")
         row = self.rows.get(tid)
+        # A stale caller does not make a valid live catalogue stale. In
+        # particular, an old editor must not force reconciliation of a re-add.
+        if row is not None and row["record_id"] != rid:
+            raise ValueError("operation_conflict")
         live = next(
             (entry for entry in self.adapter.catalogue() if entry[0] == tid), None
         )
         if (
             row is None
             or live is None
-            or row["record_id"] != rid
             or row["instance_key"] != live[1]
             or row["owner"] != live[2]
         ):
@@ -242,6 +245,47 @@ class PolicyService:
         return self.mutate(
             tid, self.rows[tid]["record_id"], actor, save_to_db=save_to_db
         )
+
+    def metadata(self, tid, rid, actor, *, version=None, changes=None):
+        # Share bounded admission and the policy lock with cleanup/lifecycle.
+        if self.operations >= 32 or self.closed:
+            return defer.fail(RuntimeError("operation_conflict"))
+        if (
+            not isinstance(tid, str)
+            or len(tid) > 64
+            or not isinstance(rid, str)
+            or len(rid) > 64
+        ):
+            return defer.fail(ValueError("invalid_request"))
+        if changes is not None and (
+            not isinstance(changes, dict)
+            or changes.keys() - METADATA_FIELDS
+            or any(
+                not isinstance(value, str) or len(value) > MAX_TEXT
+                for value in changes.values()
+            )
+        ):
+            return defer.fail(ValueError("invalid_request"))
+        self.operations += 1
+        return self._observe_operation(
+            self.lock.run(self._metadata, tid, rid, actor, version, changes)
+        )
+
+    @defer.inlineCallbacks
+    def _metadata(self, tid, rid, actor, version, changes):
+        # Reading client data also requires owner/admin, not shared access.
+        self._record(tid, rid, actor, write=True)
+        if rid in self.transfers.blocked:
+            raise RuntimeError("operation_conflict")
+        epoch, catalogue = self.epoch, self.adapter.catalogue()
+        if changes is None:
+            result = yield self.worker.call("metadata_snapshot", rid)
+        else:
+            result = yield self.worker.call("edit_metadata", rid, version, changes)
+        self._record(tid, rid, actor, write=True)
+        if not self._still_current(epoch, catalogue):
+            raise RuntimeError("operation_conflict")
+        return dict(result, record_id=rid)
 
     @defer.inlineCallbacks
     def admit_source(self, tid, rid, actor, directory, token, save, metadata):

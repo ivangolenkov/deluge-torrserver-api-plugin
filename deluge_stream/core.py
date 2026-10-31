@@ -150,6 +150,7 @@ class Core(CorePluginBase):
                 "invalid_request",
                 "forbidden",
                 "operation_conflict",
+                "metadata_conflict",
                 "recovery_required",
                 "torrent_not_found",
                 "metadata_pending",
@@ -173,6 +174,28 @@ class Core(CorePluginBase):
     def get_status(self, api_version, torrent_ids):
         self._version(api_version)
         return self.policy.get_status(torrent_ids, self.policy.adapter.actor())
+
+    @export(5)
+    def get_metadata(self, api_version, torrent_id, record_id):
+        self._version(api_version)
+        return self._public(
+            self.policy.metadata(torrent_id, record_id, self.policy.adapter.actor())
+        )
+
+    @export(5)
+    def set_metadata(self, api_version, torrent_id, record_id, version, changes):
+        self._version(api_version)
+        if not isinstance(changes, dict):
+            raise ValueError("invalid_request")
+        return self._public(
+            self.policy.metadata(
+                torrent_id,
+                record_id,
+                self.policy.adapter.actor(),
+                version=version,
+                changes=changes,
+            )
+        )
 
     @export(5)
     def set_retention(self, api_version, torrent_id, record_id, temporary):

@@ -16,7 +16,7 @@ from deluge._libtorrent import lt
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, "/checks")
-from web_browser import RPC, until  # noqa: E402
+from web_browser import RPC, metadata_editor, until  # noqa: E402
 
 payload = b"separate-filesystem-fixture" * 128
 raw = lt.bencode(
@@ -151,6 +151,8 @@ else:
             page.wait_for_function(
                 "deluge.plugins.Stream.panel.files.store.getCount() === 1"
             )
+            rid = rpc.call("stream.get_status", 1, [tid])[tid]["record_id"]
+            metadata_editor(page, rpc, tid, rid)
             page.evaluate(
                 "deluge.plugins.Stream.panel.files.getSelectionModel().selectRow(0)"
             )

@@ -181,6 +181,18 @@ def main(reactor):
             first = yield status(reactor, tid)
             rid = first["record_id"]
             assert first["is_temporary"] == first["published"] == 0
+            metadata = yield client.stream.get_metadata(1, tid, rid)
+            assert metadata["fields"] == {}
+            metadata = yield client.stream.set_metadata(
+                1,
+                tid,
+                rid,
+                metadata["version"],
+                {"data": "не JSON\r\n", "title": "Фильм"},
+            )
+            yield denied(
+                client.stream.set_metadata(1, tid, rid, "stale", {"title": "x"})
+            )
             native_before = yield client.core.get_torrent_status(
                 tid, ["file_priorities", "paused", "download_location"]
             )
@@ -225,7 +237,15 @@ def main(reactor):
             yield denied(client.stream.set_published(1, tid, rid, False))
             yield denied(client.stream.publish_existing(1, tid, False))
             yield denied(client.stream.get_config(1))
+            yield denied(client.stream.get_metadata(1, tid, rid))
+            yield denied(
+                client.stream.set_metadata(1, tid, rid, metadata["version"], {})
+            )
             yield peer.login(reactor, "alice")
+            assert (yield client.stream.get_metadata(1, tid, rid)) == metadata
+            metadata = yield client.stream.set_metadata(
+                1, tid, rid, metadata["version"], {"category": "tv"}
+            )
             yield client.stream.set_retention(1, tid, rid, False)
             next_row = yield client.stream.set_retention(1, tid, rid, True)
             assert next_row["fifo_sequence"] > fifo
@@ -248,6 +268,7 @@ def main(reactor):
             restored = yield status(reactor, tid)
             assert restored["record_id"] == rid and restored["fifo_sequence"] == fifo
             assert restored["is_temporary"] == 1 and restored["published"]
+            assert (yield client.stream.get_metadata(1, tid, rid)) == metadata
 
             yield peer.stop(crash=True)
             yield peer.start(reactor)
@@ -287,7 +308,14 @@ def main(reactor):
                 and not new["published"]
             )
             yield denied(client.stream.set_retention(1, tid, rid, True))
+            yield denied(
+                client.stream.set_metadata(1, tid, rid, metadata["version"], {})
+            )
             rid = new["record_id"]
+            yield status(
+                reactor, tid
+            )  # Stale-instance rejection schedules reconciliation.
+            assert (yield client.stream.get_metadata(1, tid, rid))["fields"] == {}
 
             # An overlapping native torrent prevents enabling temporary status.
             overlap = yield client.core.add_torrent_file(
@@ -300,6 +328,11 @@ def main(reactor):
             yield status(reactor, tid)
             yield client.stream.set_retention(1, tid, rid, True)
             yield client.stream.set_published(1, tid, rid, True)
+
+            snapshot = yield client.stream.get_metadata(1, tid, rid)
+            yield client.stream.set_metadata(
+                1, tid, rid, snapshot["version"], {"data": "reset"}
+            )
 
             assert (yield client.core.disable_plugin("Stream"))
             assert (
@@ -315,6 +348,9 @@ def main(reactor):
                 and not reset["published"]
             )
             assert (yield client.stream.get_config(1))["max_temporary_torrents"] == 2
+            assert (yield client.stream.get_metadata(1, tid, reset["record_id"]))[
+                "fields"
+            ] == {}
             assert sentinel.read_bytes() == b"keep"
             # A corrupted product DB must fail plugin enable, not kill Deluge
             # or replace the file with an empty success-shaped database.

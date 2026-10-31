@@ -9,7 +9,7 @@
 соединения, входные тела, JSON/multipart и HTTP producer; `torrents.py` проверяет
 owner/publication и строит DTO/playlist/viewed. `sources.py` вне reactor разбирает
 metadata и готовит UUID-каталоги; HTTP source fetch имеет caps/timeouts/redirect
-limit. SQLite schema 6 хранит source-add intents, без автоматического replay
+limit. SQLite хранит source-add intents, без автоматического replay
 native add после crash. Внешние file ids — 1-based, без pad-файлов.
 
 `Streams` в `streaming.py` объединяет native reads и минимальные deadlines по
@@ -26,6 +26,31 @@ alert; orphan payload не копируется. Backpressure ограничив
 Close обнуляет runtime jobs; restart/crash не переигрывает QoS. Research probe и
 product payload взаимоисключены. Пределы и диагностика описаны в [README](../README.md),
 проверки и ограничения — в [отчёте фазы 3](../tasks/implementation/phase3-report.md).
+
+## Редактор metadata (фаза 6)
+
+SQLite schema 7 добавляет `torrent_metadata.version` (не revision политики).
+При изменении полей через любой путь записи, включая `commit_source_add` и
+TorrServer `set`, генерируется новый UUID-токен; no-op не меняет токен.
+Это защищает и от ABA (изменили и вернули прежний текст). Миграция не меняет body.
+`edit_metadata` проверяет токен и применяет patch в одной write-транзакции.
+Сериализованный body сохраняет прежний лимит 65536 байт UTF-8.
+
+RPC API 1: `get_metadata(api_version, torrent_id, record_id)` и
+`set_metadata(api_version, torrent_id, record_id, version, changes)` возвращают
+`{record_id, fields, version}`. `fields` содержит реально сохранённые строки,
+без DTO fallback-названия. Неизвестные ключи, неверные типы и превышение размера —
+`invalid_request`, конфликт версии — `metadata_conflict`. Имена добавлены без
+изменения существующих сигнатур API. Owner/admin проверяются и для чтения;
+публикация, HTTP и готовность BitTorrent metadata не требуются.
+
+`PolicyService.metadata` использует общий policy lock и ограничение 32 операций,
+DB worker, повторную проверку прав/экземпляра/epoch после commit. Отмена RPC
+наблюдателя не освобождает lock до окончания worker. Открытая форма не резервирует
+торрент и не меняет политику. Все ошибки RPC проходят публичный whitelist.
+Web UI проверяет совместимость core/web; callbacks закрытого окна игнорируются.
+Отдельный baseline отображаемого текста предотвращает patch нетронутых CRLF,
+которые браузер может нормализовать в textarea.
 
 ## Исторические исследования фазы 0
 

@@ -70,6 +70,10 @@ MIGRATIONS = (
         "CREATE TABLE source_adds (token TEXT PRIMARY KEY, owner TEXT NOT NULL, "
         "hash TEXT NOT NULL, directory TEXT NOT NULL, stage TEXT NOT NULL)",
     ),
+    (
+        "ALTER TABLE torrent_metadata ADD COLUMN version TEXT NOT NULL "
+        "DEFAULT 'initial'",
+    ),
 )
 
 
@@ -366,24 +370,63 @@ class Repository:
                 == 1
             )
 
-    def set_metadata(self, record_id, changes):
+    @staticmethod
+    def validate_metadata(changes):
         if not isinstance(changes, dict) or changes.keys() - METADATA_FIELDS:
-            raise ValueError("invalid metadata fields")
-        if any(not isinstance(value, str) for value in changes.values()):
-            raise ValueError("metadata fields must be strings")
+            raise ValueError("invalid_request")
+        if any(
+            not isinstance(value, str) or len(value) > MAX_TEXT
+            for value in changes.values()
+        ):
+            raise ValueError("invalid_request")
+        try:
+            encode(changes)
+        except (ValueError, UnicodeError):
+            raise ValueError("invalid_request") from None
+
+    def _write_metadata(self, db, record_id, changes, version=None):
+        stored = db.execute(
+            "SELECT body, version FROM torrent_metadata WHERE record_id=?", (record_id,)
+        ).fetchone()
+        if version is not None and version != stored["version"]:
+            raise Conflict("metadata_conflict")
+        current = json.loads(stored["body"])
+        updated = {**current, **changes}
+        token = stored["version"]
+        if updated != current:
+            try:
+                body = encode(updated)
+            except (ValueError, UnicodeError):
+                raise ValueError("invalid_request") from None
+            token = uuid.uuid4().hex
+            db.execute(
+                "UPDATE torrent_metadata SET body=?, version=? WHERE record_id=?",
+                (body, token, record_id),
+            )
+        return {"fields": updated, "version": token}
+
+    def set_metadata(self, record_id, changes):
+        self.validate_metadata(changes)
         with self._transaction(write=True) as db:
             self._record(db, record_id)
-            current = json.loads(
-                db.execute(
-                    "SELECT body FROM torrent_metadata WHERE record_id=?", (record_id,)
-                ).fetchone()[0]
-            )
-            current.update(changes)
-            db.execute(
-                "UPDATE torrent_metadata SET body=? WHERE record_id=?",
-                (encode(current), record_id),
-            )
-            return current
+            return self._write_metadata(db, record_id, changes)["fields"]
+
+    def edit_metadata(self, record_id, version, changes):
+        self.validate_metadata(changes)
+        if not isinstance(version, str) or len(version) > 64:
+            raise ValueError("invalid_request")
+        with self._transaction(write=True) as db:
+            self._record(db, record_id)
+            return self._write_metadata(db, record_id, changes, version)
+
+    def metadata_snapshot(self, record_id):
+        with self._transaction() as db:
+            self._record(db, record_id)
+            row = db.execute(
+                "SELECT body, version FROM torrent_metadata WHERE record_id=?",
+                (record_id,),
+            ).fetchone()
+            return {"fields": json.loads(row["body"]), "version": row["version"]}
 
     def get_metadata(self, record_id):
         with self._transaction() as db:
@@ -429,10 +472,7 @@ class Repository:
 
     def commit_source_add(self, token, record_id, revision, save, metadata):
         boolean(save)
-        if metadata.keys() - METADATA_FIELDS or any(
-            not isinstance(value, str) for value in metadata.values()
-        ):
-            raise ValueError("invalid_request")
+        self.validate_metadata(metadata)
         with self._transaction(write=True) as db:
             row = self._record(db, record_id, revision)
             intent = db.execute(
@@ -444,16 +484,7 @@ class Repository:
             ).fetchone()
             if intent is None or intent["owner"] != row["owner"] or not alias:
                 raise Conflict("operation_conflict")
-            current = json.loads(
-                db.execute(
-                    "SELECT body FROM torrent_metadata WHERE record_id=?", (record_id,)
-                ).fetchone()[0]
-            )
-            current.update(metadata)
-            db.execute(
-                "UPDATE torrent_metadata SET body=? WHERE record_id=?",
-                (encode(current), record_id),
-            )
+            self._write_metadata(db, record_id, metadata)
             result = self._change(
                 db, record_id, temporary=not save, published=True, revision=revision
             )

@@ -22,15 +22,18 @@ from streaming import fetch  # noqa: E402
 def schema_five_fixture(database):
     """Controlled old-schema fixture, NOT a claim that the old egg used schema 5."""
     with closing(sqlite3.connect(database)) as db, db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        schema = db.execute("PRAGMA user_version").fetchone()[0]
+        assert schema in (6, 7)
         assert db.execute("SELECT COUNT(*) FROM source_adds").fetchone()[0] == 0
         db.execute("DROP TABLE source_adds")
+        if schema == 7:
+            db.execute("ALTER TABLE torrent_metadata DROP COLUMN version")
         db.execute("PRAGMA user_version=5")
 
 
 def migrated(database):
     with closing(sqlite3.connect(database)) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
         assert db.execute("SELECT COUNT(*) FROM source_adds").fetchone()[0] == 0
@@ -190,7 +193,7 @@ def main(reactor):
                 json.dumps(
                     {
                         "delivery": (
-                            "replacement/migration5-to6/disable/re-enable/"
+                            "replacement/migration5-to7/disable/re-enable/"
                             "uninstall passed"
                         ),
                         "previous_sha256": hashlib.sha256(

@@ -140,6 +140,39 @@ def run(reactor, root, egg):
         assert torrent.options["owner"] == "localclient"
         assert Path(torrent.handle.save_path()).parent == root / "downloads"
         assert policy.rows[tid]["published"] and policy.rows[tid]["is_temporary"]
+        rid = policy.rows[tid]["record_id"]
+        original_options = dict(torrent.options)
+        original_policy = dict(policy.rows[tid])
+        snapshot = yield plugin.get_metadata(1, tid, rid)
+        assert snapshot["fields"]["title"] == "fixture"
+        updated = yield plugin.set_metadata(
+            1,
+            tid,
+            rid,
+            snapshot["version"],
+            {"title": "Редактор", "data": "not JSON\r\n"},
+        )
+        for action in ("get", "list"):
+            response = yield request("/torrents", {"action": action, "hash": tid})
+            assert response[0] == 200, response
+            value = json.loads(response[2])
+            if action == "list":
+                value = next(item for item in value if item["hash"] == tid)
+            assert value["title"] == "Редактор" and value["data"] == "not JSON\r\n"
+        response = yield request(
+            "/torrents", {"action": "set", "hash": tid, "category": "tv"}
+        )
+        assert response[0] == 200, response
+        try:
+            yield plugin.set_metadata(
+                1, tid, rid, updated["version"], {"title": "stale"}
+            )
+        except RuntimeError as error:
+            assert str(error) == "metadata_conflict"
+        else:
+            raise AssertionError("Lampa set was overwritten")
+        assert policy.rows[tid] == original_policy
+        assert dict(torrent.options) == original_options
         original_check = server.streams.adapter.check
 
         def admission_conflict(session):

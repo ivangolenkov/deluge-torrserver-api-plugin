@@ -176,7 +176,7 @@ test harness, а не команда для восстановления пол�
 При обнаружении другой версии entrypoint откажет вместо удаления чужого файла.
 Тот же version/name заменяется image egg; не переиспользуйте выпущенную версию
 для другого кода. `make test-delivery` проверяет замену установленного core egg,
-миграцию schema 5 → 6 на явно подготовленном offline fixture, сохранение FIFO,
+миграцию schema 5 → 7 на явно подготовленном offline fixture, сохранение FIFO,
 publication/viewed/settings и native pause/priorities/auto-managed, явный disable/reset
 и удаление test egg без удаления торрентов/payload. Без `PREVIOUS_EGG` это
 redeployment текущего кандидата, не обновление опубликованной версии. Для сравнения

@@ -8,6 +8,8 @@ Deluge.stream.messages = {
     torrent_not_ready: 'ZIP недоступен: не готовы все файлы, включая пропущенные.',
     forbidden: 'Недостаточно прав.', torrent_not_found: 'Торрент исчез или нет доступа.',
     operation_conflict: 'Состояние изменилось. Обновите данные и повторите.',
+    metadata_conflict: 'Метаданные изменены другим клиентом. Черновик сохранён в форме; перечитайте данные для повторного редактирования.',
+    invalid_request: 'Некорректные данные или превышен лимит metadata (64 КиБ JSON в UTF-8).',
     public_url_required: 'Настройте доступный браузеру public_base_url и HTTP listener.',
     transfer_limit: 'Достигнут предел передач или tickets.',
     unsafe_paths: 'Небезопасные или неоднозначные пути.',
@@ -16,7 +18,7 @@ Deluge.stream.messages = {
 };
 Deluge.stream.error = function(error) {
     var detail = error && (error.error || error);
-    var text = detail && (detail.message || detail.exception_msg || detail.reason || detail.msg);
+    var text = typeof detail === 'string' ? detail : detail && (detail.message || detail.exception_msg || detail.reason || detail.msg);
     if (typeof text === 'string') {
         text = text.slice(0, 8192);
         for (var code in Deluge.stream.messages) {
@@ -83,6 +85,121 @@ Deluge.ux.preferences.StreamPage = Ext.extend(Ext.form.FormPanel, {
     }
 });
 
+Deluge.stream.MetadataWindow = Ext.extend(Ext.Window, {
+    title: 'Метаданные TorrServer / Lampa', width: 660, height: 530,
+    layout: 'fit', modal: true, closeAction: 'close',
+    initComponent: function() {
+        this.fields = {};
+        this.info = new Ext.form.DisplayField({value: 'Загрузка…'});
+        var items = [this.info], labels = {title: 'Название', poster: 'Постер (URL)', category: 'Категория', data: 'data (текст / JSON)'};
+        for (var key in labels) {
+            this.fields[key] = new (key === 'data' ? Ext.form.TextArea : Ext.form.TextField)({
+                fieldLabel: labels[key], anchor: '98%', height: key === 'data' ? 210 : undefined
+            });
+            items.push(this.fields[key]);
+        }
+        items.push(new Ext.form.DisplayField({value: 'Пустое сохранённое название не равно имени торрента. data зависит от клиента Lampa; изменяйте осторожно. Постер автоматически не загружается.'}));
+        this.form = new Ext.form.FormPanel({padding: 10, labelWidth: 130, autoScroll: true, items: items});
+        this.saveButton = new Ext.Button({text: 'Сохранить', disabled: true, handler: this.save, scope: this});
+        this.reloadButton = new Ext.Button({text: 'Перечитать', handler: this.reload, scope: this});
+        this.buttons = [{text: 'Проверить JSON', handler: function() { this.json(false); }, scope: this},
+            {text: 'Форматировать JSON', handler: function() { this.json(true); }, scope: this},
+            this.reloadButton, this.saveButton, {text: 'Отмена', handler: function() { this.close(); }, scope: this}];
+        this.items = [this.form];
+        Deluge.stream.MetadataWindow.superclass.initComponent.call(this);
+        this.on('beforeclose', this.beforeClose, this);
+        this.on('show', this.load, this);
+    },
+    dirty: function() {
+        if (!this.snapshot) return false;
+        for (var key in this.fields) if (this.fields[key].getValue() !== this.baseline[key]) return true;
+        return false;
+    },
+    beforeClose: function() {
+        if (this.discard || !this.dirty()) return true;
+        Ext.Msg.confirm('Метаданные', 'Закрыть форму и потерять несохранённые правки? Уже отправленное сохранение отменить нельзя.', function(answer) {
+            if (answer === 'yes' && !this.isDestroyed) { this.discard = true; this.close(); }
+        }, this);
+        return false;
+    },
+    setBusy: function(value) {
+        this.busy = value;
+        this.saveButton.setDisabled(value || !this.snapshot);
+        this.reloadButton.setDisabled(value);
+        for (var key in this.fields) this.fields[key].setDisabled(value || !this.snapshot);
+    },
+    invoke: function(method, args, callbacks) {
+        deluge.client.stream.get_web_status({scope: this, success: function(status) {
+            if (this.isDestroyed) return;
+            if (!status.available) return callbacks.failure.call(this, status);
+            deluge.client.stream[method].apply(deluge.client.stream, args.concat([callbacks]));
+        }, failure: function(error) {
+            if (!this.isDestroyed) callbacks.failure.call(this, error);
+        }});
+    },
+    load: function() {
+        if (this.busy || this.isDestroyed) return;
+        this.setBusy(true);
+        this.info.setValue('Загрузка…');
+        this.invoke('get_metadata', [1, this.torrentId, this.recordId], {scope: this,
+            success: function(snapshot) {
+                if (this.isDestroyed) return;
+                this.snapshot = snapshot;
+                this.baseline = {};
+                for (var key in this.fields) {
+                    this.fields[key].setValue(snapshot.fields[key] || '');
+                    // Textareas may normalize CRLF: do not patch untouched text.
+                    this.baseline[key] = this.fields[key].getValue();
+                }
+                this.setBusy(false);
+                this.info.setValue('Загружено. Сохраняются только изменённые поля.');
+            }, failure: function(error) {
+                if (this.isDestroyed) return;
+                this.setBusy(false); this.info.setValue(Deluge.stream.error(error));
+            }
+        });
+    },
+    reload: function() {
+        if (this.busy) return;
+        if (!this.dirty()) return this.load();
+        Ext.Msg.confirm('Метаданные', 'Потерять черновик и перечитать сохранённые данные?', function(answer) {
+            if (answer === 'yes' && !this.isDestroyed) this.load();
+        }, this);
+    },
+    json: function(format) {
+        if (this.busy || !this.snapshot) return;
+        try {
+            // Native JSON.parse, never eval/Ext.decode of untrusted client data.
+            var value = JSON.parse(this.fields.data.getValue());
+            if (format) this.fields.data.setValue(JSON.stringify(value, null, 2));
+            this.info.setValue(format ? 'JSON отформатирован в черновике.' : 'Корректный JSON.');
+        } catch (error) {
+            this.info.setValue('Не JSON. Произвольный текст всё равно можно сохранить.');
+        }
+    },
+    save: function() {
+        if (this.busy || !this.snapshot) return;
+        var changes = {};
+        for (var key in this.fields) {
+            var value = this.fields[key].getValue();
+            if (value !== this.baseline[key]) changes[key] = value;
+        }
+        this.setBusy(true);
+        this.info.setValue('Сохранение…');
+        this.invoke('set_metadata', [1, this.torrentId, this.recordId, this.snapshot.version, changes], {scope: this,
+            success: function(snapshot) {
+                if (this.isDestroyed) return;
+                this.snapshot = snapshot; this.setBusy(false);
+                for (var key in this.fields) this.baseline[key] = this.fields[key].getValue();
+                this.info.setValue('Метаданные сохранены. Кэш Lampa может обновиться позже.');
+            }, failure: function(error) {
+                if (this.isDestroyed) return;
+                this.setBusy(false); this.info.setValue(Deluge.stream.error(error));
+            }
+        });
+    }
+});
+
 Deluge.stream.Panel = Ext.extend(Ext.Panel, {
     title: 'Stream', layout: 'border',
     initComponent: function() {
@@ -93,7 +210,8 @@ Deluge.stream.Panel = Ext.extend(Ext.Panel, {
                 {header: 'Размер', dataIndex: 'size', width: 90},
                 {header: 'Готов', dataIndex: 'ready', renderer: function(v) { return v ? 'Да' : 'Нет'; }}],
             sm: new Ext.grid.RowSelectionModel({singleSelect: true}),
-            tbar: [{text: 'Скачать файл', handler: function() { this.owner.download('file'); }, scope: this},
+            tbar: [{text: 'Метаданные', handler: function() { this.owner.editMetadata(); }, scope: this},
+                {text: 'Скачать файл', handler: function() { this.owner.download('file'); }, scope: this},
                 {text: 'Скачать ZIP', handler: function() { this.owner.download('zip'); }, scope: this},
                 {text: 'Ссылка воспроизведения', handler: function() { this.owner.copyLink(); }, scope: this},
                 {text: '← 128', handler: function() { this.owner.fileOffset = Math.max(0, (this.owner.fileOffset || 0) - 128); this.owner.refresh(); }, scope: this},
@@ -251,8 +369,16 @@ Deluge.plugins.Stream = Ext.extend(Deluge.Plugin, {
         if (!file || !file.get('play_url')) return Deluge.stream.notice('Нужны публикация и public_base_url.');
         Ext.Msg.show({title: 'Ссылка воспроизведения', msg: 'Скопируйте ссылку:', prompt: true, value: file.get('play_url'), buttons: Ext.Msg.OK});
     },
+    editMetadata: function() {
+        var ids = deluge.torrents.getSelectedIds(), row = this.panel.row;
+        if (ids.length !== 1 || !row || ids[0] !== this.panel.torrentId) return Deluge.stream.notice('Выберите один торрент и дождитесь обновления Stream.');
+        if (this.metadataWindow && !this.metadataWindow.isDestroyed) return this.metadataWindow.toFront();
+        this.metadataWindow = new Deluge.stream.MetadataWindow({torrentId: ids[0], recordId: row.record_id});
+        this.metadataWindow.show();
+    },
     onDisable: function() {
         this.alive = false; ++this.serial;
+        if (this.metadataWindow && !this.metadataWindow.isDestroyed) this.metadataWindow.destroy();
         if (this.poll) Ext.TaskMgr.stop(this.poll);
         if (this.nativeFiles) this.nativeFiles.un('contextmenu', this.fileContext, this);
         if (this.fileMenu) this.fileMenu.destroy();

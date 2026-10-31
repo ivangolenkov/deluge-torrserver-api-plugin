@@ -58,6 +58,154 @@ def until(check, seconds=15):
     raise AssertionError("browser runtime condition timed out")
 
 
+def metadata_editor(page, rpc, tid, rid):
+    """Actual Ext form and installed, authenticated core RPC (also split nodes)."""
+    window = "deluge.plugins.Stream.metadataWindow"
+
+    def open_editor():
+        page.get_by_role("button", name="Метаданные", exact=True).click()
+        page.wait_for_function(f"{window} && {window}.snapshot && !{window}.busy")
+
+    def field(name, value):
+        page.evaluate(
+            "([key, value]) => "
+            "deluge.plugins.Stream.metadataWindow.fields[key].setValue(value)",
+            [name, value],
+        )
+
+    def save():
+        page.get_by_text("Сохранить", exact=True).click()
+        page.wait_for_function(f"!{window}.busy")
+
+    original = rpc.call("stream.get_metadata", 1, tid, rid)
+    original = rpc.call(
+        "stream.set_metadata",
+        1,
+        tid,
+        rid,
+        original["version"],
+        {"data": "raw\r\ntext", "title": "<img src=x onerror='window.metadataXSS=1'>"},
+    )
+    open_editor()
+    save()  # An untouched textarea must not normalize the stored CRLF.
+    assert rpc.call("stream.get_metadata", 1, tid, rid) == original
+    assert page.evaluate("window.metadataXSS") is None
+    assert not page.locator(".x-window img[src=x]").count()
+    field("category", "Категория 🎬")
+    field("data", "произвольный текст, не JSON")
+    page.get_by_text("Проверить JSON", exact=True).click()
+    assert "Не JSON" in page.locator("body").inner_text()
+    save()
+    saved = rpc.call("stream.get_metadata", 1, tid, rid)
+    assert saved["fields"]["category"] == "Категория 🎬"
+    assert saved["fields"]["data"] == "произвольный текст, не JSON"
+    field("title", "черновик")
+    rpc.call(
+        "stream.set_metadata", 1, tid, rid, saved["version"], {"title": "другой клиент"}
+    )
+    save()
+    assert "Черновик сохранён" in page.locator("body").inner_text()
+    assert page.evaluate(f"{window}.fields.title.getValue()") == "черновик"
+    page.get_by_text("Перечитать", exact=True).click()
+    page.get_by_text("Yes", exact=True).click()
+    page.wait_for_function(
+        f"!{window}.busy && {window}.fields.title.getValue() === 'другой клиент'"
+    )
+    field("data", '{"name":"Тест","n":1}')
+    page.get_by_text("Форматировать JSON", exact=True).click()
+    assert "\n" in page.evaluate(f"{window}.fields.data.getValue()")
+    save()
+    saved = rpc.call("stream.get_metadata", 1, tid, rid)
+    # Browser fault injection exercises error presentation, not storage durability.
+    field("title", "черновик ошибки")
+    page.evaluate("""() => {
+        var api = deluge.client.stream;
+        window.metadataRealSet = api.set_metadata;
+        api.set_metadata = function() {
+            var cb = arguments[arguments.length - 1];
+            cb.failure.call(cb.scope, {message: 'storage_error'});
+        };
+    }""")
+    save()
+    assert "Ошибка хранения" in page.locator("body").inner_text()
+    assert page.evaluate(f"{window}.fields.title.getValue()") == "черновик ошибки"
+    page.evaluate(
+        "() => { deluge.client.stream.set_metadata = window.metadataRealSet; }"
+    )
+    page.evaluate("""() => {
+        var api = deluge.client.stream;
+        window.metadataRealStatus = api.get_web_status;
+        window.metadataStatusError = 'incompatible_core';
+        api.get_web_status = function(cb) {
+            cb.success.call(cb.scope,
+                {available: false, error: window.metadataStatusError});
+        };
+    }""")
+    save()
+    assert "одинаковые версии" in page.locator("body").inner_text()
+    page.evaluate("window.metadataStatusError = 'core_unavailable'")
+    save()
+    assert "Core Stream недоступен" in page.locator("body").inner_text()
+    page.evaluate(
+        "() => { deluge.client.stream.get_web_status = window.metadataRealStatus; }"
+    )
+    # One in-flight save; closing/changing selection cannot retarget its callback.
+    page.evaluate("""() => {
+        window.metadataCalls = 0;
+        deluge.client.stream.set_metadata = function() {
+            window.metadataCalls++;
+            window.metadataPending = arguments[arguments.length - 1];
+        };
+    }""")
+    page.get_by_text("Сохранить", exact=True).click()
+    page.wait_for_function("window.metadataCalls === 1")
+    page.evaluate("""() => {
+        deluge.plugins.Stream.metadataWindow.save();
+        deluge.torrents.getSelectionModel().clearSelections();
+    }""")
+    assert page.evaluate("window.metadataCalls") == 1
+    page.get_by_text("Отмена", exact=True).click()
+    page.get_by_text("Yes", exact=True).click()
+    page.wait_for_function(f"{window}.isDestroyed")
+    page.evaluate(
+        """snapshot => {
+        deluge.client.stream.set_metadata = window.metadataRealSet;
+        window.metadataPending.success.call(window.metadataPending.scope, snapshot);
+    }""",
+        saved,
+    )
+    assert rpc.call("stream.get_metadata", 1, tid, rid) == saved
+    page.evaluate(
+        """id => deluge.torrents.getSelectionModel().selectRecords(
+        [deluge.torrents.store.getById(id)])""",
+        tid,
+    )
+    page.wait_for_function("deluge.plugins.Stream.panel.row !== null")
+    open_editor()
+    field("data", "отменить")
+    page.get_by_text("Отмена", exact=True).click()
+    page.get_by_text("Yes", exact=True).click()
+    page.wait_for_function(f"{window}.isDestroyed")
+    assert rpc.call("stream.get_metadata", 1, tid, rid) == saved
+    # The editor uses RPC even when the public HTTP listener is disabled.
+    rpc.call("stream.set_config", 1, {"http_enabled": False})
+    open_editor()
+    field("poster", "https://example.invalid/poster.jpg")
+    save()
+    assert (
+        rpc.call("stream.get_metadata", 1, tid, rid)["fields"]["poster"]
+        == "https://example.invalid/poster.jpg"
+    )
+    page.get_by_text("Отмена", exact=True).click()
+    page.wait_for_function(f"{window}.isDestroyed")
+    rpc.call("stream.set_config", 1, {"http_enabled": True})
+    print(
+        "METADATA UI: text/JSON, CRLF, XSS, CAS conflict/draft, "
+        "cancel, HTTP-off RPC passed",
+        flush=True,
+    )
+
+
 def test(egg, root, executable):
     core, web = root / "core", root / "web"
     for profile in (core, web):
@@ -199,6 +347,7 @@ def test(egg, root, executable):
                 "deluge.plugins.Stream.panel.files.store.getCount() === 1"
             )
             assert "Постоянный" in page.locator("body").inner_text()
+            metadata_editor(page, rpc, tid, rid)
             page.evaluate(
                 "deluge.plugins.Stream.panel.files.getSelectionModel().selectRow(0)"
             )
