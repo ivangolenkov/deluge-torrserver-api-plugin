@@ -882,3 +882,73 @@ SHA-256 `70b7796b217788dc3168d7c8d7e973293b88978c829e6bf6e236846352b79fc0`.
 версии Lampa. Воспроизведение/перемотка и Num не проверены этим сценарием;
 DoD фазы 5 и полная клиентская приёмка не объявляются завершёнными.
 Ни публикация релиза, ни установка исправления на рабочий сервер не выполнялись.
+
+## Magnet playback: ложный metadata_pending при пустом кэше приоритетов Deluge
+
+Пользователь сообщил об ошибке видео на TV и бесконечной загрузке на ПК.
+Read-only диагностика Web RPC показала готовый Stream 0.1.5, активный listener,
+правильный LAN public_base_url/owner, известный список файлов и скачивающийся
+magnet-торрент. Диагностический Range GET первых 64 KiB по опубликованному URL
+первого файла вернул **409, {"error":"metadata_pending"}**, хотя metadata уже
+была получена. Затем штатный status-запрос `file_priorities` вернул 24 приоритета
+4; повторный Range получил **206 / 65536 bytes** примерно за 4.3 секунды.
+
+Важный побочный эффект диагностики: Deluge.get_file_priorities при пустом
+options cache вызывает set_file_priorities([]) для ленивого заполнения кэша.
+Поэтому status RPC нельзя считать абсолютно инертным в этом состоянии;
+пользователь уведомлён. Явных set-options/включений/отключений плагина, смены
+конфигурации, удаления или добавления торрентов на сервере не выполнялось.
+Range GET является реальным playback-запросом и может применить обычные
+streaming deadlines/защиту/viewed; это не проверка без побочных эффектов.
+
+Причина: `NativeStreams.missing_reason` ошибочно приравнивал короткий/пустой
+`torrent.options["file_priorities"]` к отсутствию metadata. После magnet metadata
+Deluge.on_metadata_received не обязан заполнять этот options cache. Обычный
+Web UI status getter маскировал проблему, поэтому .torrent-based тесты её не нашли.
+
+Исправление `deluge_stream/stream_adapter.py`: при коротком кэше проверить native
+has_metadata и прочитать handle.get_file_priorities(), не вызывая getter/setter
+Deluge и не записывая options. Нулевой приоритет всё так же означает skip;
+заполненный options cache сохраняет приоритет пользовательского намерения при
+асинхронном применении. Если native metadata/vector действительно отсутствует,
+metadata_pending сохраняется. Pause/queue/disk error checks не изменяются.
+
+Проверки:
+- `tests/unit/test_stream_adapter_priorities.py`: шесть комбинаций empty cache,
+  native skip/default, реального отсутствия metadata/vector, приоритета populated
+  user cache; никаких setters и изменения options.
+- `tests/runtime/streaming.py`: настоящий magnet без metadata получает её от
+  локального seed; upload limit удерживает первый piece неготовым. Без Web UI
+  status getter и при пустом options cache Range должен перейти в native wait,
+  после снятия fixture upload limit отдать 206/точные bytes. Проверяется сохранение
+  пустого cache и native file priorities. Это изолированный fixture, не public swarm.
+- README и индекс фаз описывают новый инвариант; Make/CI уже запускают этот
+  native streaming test через make check, новые цели не требуются.
+
+Команды, Linux runtime-профили прежние (Arch x86_64/3.14 под эмуляцией,
+Debian ARM64/3.11 нативно):
+
+```sh
+caffeinate -i docker run --rm --platform linux/amd64 --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-py314-check:amd64 make check VENV=/opt/venv BUILD_DIR=build/magnet314 DIST_DIR=dist/magnet314 > build/check-magnet314.log 2>&1
+caffeinate -i docker run --rm --network none -e STREAM_RELEASE_TAG= -v "$PWD:/work" deluge-stream-phase5-check:arm64 make check VENV=/opt/venv BUILD_DIR=build/magnet311 DIST_DIR=dist/magnet311 > build/check-magnet311.log 2>&1
+```
+
+Оба полных make check Passed: 290 unit + 87 persistence в каждом runtime,
+native streaming (включая настоящий magnet metadata exchange с пустым cache),
+retention/lifecycle, downloads/direct-read, Chromium, packaging, installed smoke
+и delivery/candidate. Первые запуски обоих runtime прошли сам новый Range,
+но тест попытался удалить torrent до окончания штатного debounce и упал на
+проверке удаления. Fixture исправлен ожиданием cleanup_protected=False, как и
+для остальных native сценариев; продуктовая защита не ослаблялась. Приведённые
+команды повторены и полностью завершились с exit 0. Это не hosted CI run.
+
+Исправленный dev artifact:
+`dist/magnet314/Stream-0.0.0.dev0-py3.14.egg`, SHA-256
+`ec438d5c93d08fa3f16d5ab550566af001237f58aacd48db17d3fa7fd5c93580`.
+README/индекс/отчёт обновлены; manifest/checksums пересоздаются после финальных
+документационных правок без изменения bytes egg.
+Диагностические HTTP headers и bounded payload сохранены только локально в ignored build/.
+A02: выявлен конкретный серверный отказ начала playback; успешный Range после
+status getter не равен проверке декодирования и воспроизведения TV/PC.
+Полная клиентская приёмка, Num, HDD/memory/ENOSPC и DoD фазы 5 не закрыты.
+На рабочий сервер исправленный код пока не установлен, релиз не опубликован.

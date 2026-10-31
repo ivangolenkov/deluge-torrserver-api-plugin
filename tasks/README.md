@@ -84,6 +84,12 @@ Twisted 26.10.0 без удаления py3.11. Runtime profiles и устано
 и подтверждён активный на исправленном изолированном Python 3.14 listener.
 Это частичная проверка A02, не полная клиентская приёмка.
 
+Выявлен и исправлен следующий playback-сбой magnet: после получения metadata
+пустой Deluge options cache ошибочно считался `metadata_pending`. Stream использует
+read-only native file priorities при пустом кэше, не вызывая setter Deluge.
+Native-сценарий metadata exchange → Range без UI status getter и полные
+make check 3.11/3.14 прошли (290 unit + 87 persistence для каждого профиля).
+
 ## Обязательные сквозные результаты
 
 ### README

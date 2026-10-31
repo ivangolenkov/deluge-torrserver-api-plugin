@@ -153,9 +153,18 @@ class NativeStreams:
 
     def missing_reason(self, session):
         torrent = session.native
-        if len(torrent.options["file_priorities"]) <= session.file.index:
+        priorities = torrent.options["file_priorities"]
+        if len(priorities) <= session.file.index:
+            # Deluge can leave this options cache empty after magnet metadata
+            # arrives, until its status getter lazily populates it. That getter
+            # calls set_file_priorities: read the native vector instead, without
+            # changing user selection or requiring an open Web UI Files tab.
+            if not torrent.handle.status().has_metadata:
+                return "metadata_pending"
+            priorities = torrent.handle.get_file_priorities()
+        if len(priorities) <= session.file.index:
             return "metadata_pending"
-        if torrent.options["file_priorities"][session.file.index] == 0:
+        if priorities[session.file.index] == 0:
             return "file_skipped"
         status = torrent.handle.status()
         if status.errc.value():

@@ -486,6 +486,47 @@ def run(reactor, root, egg):
             )
             assert removed[0] == 200 and file_path.exists()
             assert file_path.read_bytes() == b"b" * 100003
+        # A real magnet learns metadata from the local seed without a preceding
+        # Web UI status getter (which would initialize Deluge's options cache).
+        magnet_metadata = lt.bdecode(raw)
+        magnet_metadata[b"info"][b"source"] = b"magnet-stream-regression"
+        magnet_raw = lt.bencode(magnet_metadata)
+        magnet_info = lt.torrent_info(magnet_raw)
+        magnet_tid = str(magnet_info.info_hashes().v1)
+        magnet_seed = seed.add_torrent({"ti": magnet_info, "save_path": str(seed_path)})
+        magnet_seed.set_upload_limit(1024)
+        yield native.until(reactor, lambda: magnet_seed.status().is_seeding)
+        magnet_reply = yield request("/torrents", {"action": "add", "link": magnet_tid})
+        assert magnet_reply[0] == 200, magnet_reply
+        assert json.loads(magnet_reply[2])["metadata_pending"]
+        mt = component.get("TorrentManager").torrents[magnet_tid]
+        mt.handle.connect_peer(("127.0.0.1", seed.listen_port()))
+        yield native.until(reactor, lambda: mt.handle.status().has_metadata)
+        yield native.until(reactor, lambda: mt.handle.status().state not in (1, 7))
+        assert mt.options["file_priorities"] == []
+        assert not mt.handle.have_piece(0)
+        native_priorities = mt.handle.get_file_priorities()
+        magnet_read = request(f"/play/{magnet_tid}/1", headers={"Range": "bytes=0-16"})
+        yield native.until(
+            reactor, lambda: bool(server.streams.jobs) or magnet_read.called
+        )
+        assert server.streams.jobs and not magnet_read.called
+        magnet_seed.set_upload_limit(0)
+        magnet_part = yield magnet_read
+        assert magnet_part[0] == 206 and magnet_part[2] == b"\x01" * 17, magnet_part
+        assert mt.options["file_priorities"] == []
+        assert mt.handle.get_file_priorities() == native_priorities
+        print(
+            "MAGNET STREAMING: metadata learned; empty Deluge priorities cache; "
+            "native incomplete Range delivered without changing file priorities"
+        )
+        yield native.until(
+            reactor,
+            lambda: not policy.transfer_status(magnet_tid)["cleanup_protected"],
+        )
+        assert (yield request("/torrents", {"action": "rem", "hash": magnet_tid}))[
+            0
+        ] == 200
         pending_hash = "d" * 40
         pending = yield request("/torrents", {"action": "add", "link": pending_hash})
         assert pending[0] == 200, pending
