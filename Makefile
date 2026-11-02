@@ -35,6 +35,7 @@ help:
 	@echo 'Version: Git release tag, or 0.0.0.dev0 without one; no manual source version bump.'
 	@echo 'test-persistence: SQLite policy/migrations/worker and recovery-ledger tests.'
 	@echo 'test-integration: SQLite, native HTTP/streaming/QoS/preload/restart, policy/FIFO, guards, ZIP64.'
+	@echo 'test-updates: isolated core/web + Chromium release install/restart; local network fixtures.'
 	@echo 'test: unit + integration; check: docs/lint/format/test/build/smoke.'
 	@echo 'test-packaging: two clean-directory builds; check also verifies candidate manifest/checksums.'
 	@echo 'test-docker: isolated product Compose recreation; PRODUCT_IMAGE selects a prebuilt image.'
@@ -71,6 +72,9 @@ test-downloads: build
 	$(RUN) tools/zip_probe.py
 test-web: build
 	$(RUN) -I tests/runtime/web_browser.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
+.PHONY: test-updates
+test-updates: build
+	$(RUN) -I tests/runtime/updates.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
 .PHONY: test-direct
 test-direct: build
 	$(RUN) -I tests/runtime/direct_reads.py --egg "$(EGG)" --profile-root "$(TEST_PROFILE_ROOT)"
@@ -85,7 +89,7 @@ test-delivery: build
 .PHONY: test-delivery-historical
 test-delivery-historical: build
 	$(RUN) tools/historical_delivery.py --egg "$(EGG)" --previous-ref "$(PREVIOUS_REF)" --profile-root "$(TEST_PROFILE_ROOT)"
-test: test-unit test-integration test-downloads test-web test-direct
+test: test-unit test-integration test-downloads test-web test-direct test-updates
 smoke: build
 	$(RUN) tools/runtime_check.py --mode smoke --dist "$(DIST_DIR)" --profile-root "$(TEST_PROFILE_ROOT)"
 check: check-docs lint format-check test smoke test-packaging test-delivery candidate-check

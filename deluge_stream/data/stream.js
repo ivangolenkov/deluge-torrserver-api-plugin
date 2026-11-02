@@ -1,6 +1,16 @@
 /* Deluge 2.2 Web UI. Binary transfers go directly to core, never through RPC. */
 Ext.ns('Deluge.stream', 'Deluge.ux.preferences');
 Deluge.stream.messages = {
+    update_busy: 'Обновление уже выполняется.',
+    update_cancelled: 'Обновление отменено при остановке плагина.',
+    update_network: 'Не удалось получить релиз с GitHub. Проверьте соединение и повторите.',
+    update_rate_limit: 'GitHub ограничил запросы. Повторите проверку позже.',
+    update_invalid: 'Релиз или пакет не соответствует формату Stream.',
+    update_incompatible: 'В релизе нет пакета для этого Python / Deluge / libtorrent / Twisted.',
+    update_checksum: 'Контрольная сумма пакета не совпала. Установка остановлена.',
+    update_conflict: 'Состояние обновления изменилось. Повторите проверку.',
+    update_storage: 'Не удалось записать пакет в профиль Deluge. Проверьте права и место на диске.',
+    restart_unsupported: 'Автоперезапуск доступен при штатном запуске deluged и deluge-web в Linux.',
     core_unavailable: 'Core Stream недоступен.',
     incompatible_core: 'Установите одинаковые версии core и web Stream.',
     web_disabled: 'Web Stream отключён.',
@@ -31,14 +41,127 @@ Deluge.stream.error = function(error) {
 Deluge.stream.notice = function(text) {
     Ext.Msg.alert('Stream', Ext.util.Format.htmlEncode(text));
 };
+Deluge.stream.watchUpdate = function(pending) {
+    // This observer survives native Deluge disabling the plugin UI on disconnect.
+    // Only reconnect the selected host, and only while no daemon is connected.
+    if (!pending.host || window.streamUpdateWatch) return;
+    var busy = false;
+    window.streamUpdateWatch = setInterval(function() {
+        if (Date.now() - pending.started > 180000) {
+            clearInterval(window.streamUpdateWatch); window.streamUpdateWatch = null; return;
+        }
+        if (busy) return;
+        busy = true;
+        deluge.client.web.connected({success: function(connected) {
+            if (connected) { busy = false; return; }
+            deluge.client.web.connect(pending.host, {success: function(methods) {
+                busy = false;
+                if (!methods) return;
+                deluge.client.on('connected', function() { deluge.events.fire('connect'); }, null, {single: true});
+                deluge.client.reloadMethods();
+                deluge.connectionManager.hide();
+            }, failure: function() { busy = false; }});
+        }, failure: function() { busy = false; }});
+    }, 2000);
+};
 Deluge.ux.preferences.StreamPage = Ext.extend(Ext.form.FormPanel, {
     title: 'Stream', autoScroll: true, labelWidth: 170,
     initComponent: function() {
         this.fields = {};
         this.info = new Ext.form.DisplayField({value: 'Проверка core…'});
-        this.items = [this.info];
+        this.updateInfo = new Ext.form.DisplayField({value: 'Проверка обновлений запускается вручную.'});
+        this.checkUpdateButton = new Ext.Button({text: 'Проверить обновления', scope: this, handler: this.checkUpdate});
+        this.installUpdateButton = new Ext.Button({text: 'Установить обновление', disabled: true, scope: this, handler: this.installUpdate});
+        this.releaseButton = new Ext.Button({text: 'Открыть релиз', disabled: true, scope: this, handler: function() {
+            if (this.releaseUrl) window.open(this.releaseUrl, '_blank', 'noopener,noreferrer');
+        }});
+        this.items = [this.info, {xtype: 'fieldset', title: 'Обновление Stream', items: [this.updateInfo,
+            this.checkUpdateButton, this.releaseButton, this.installUpdateButton]}];
         Deluge.ux.preferences.StreamPage.superclass.initComponent.call(this);
+        try {
+            var pending = JSON.parse(sessionStorage.getItem('streamPendingUpdate') || 'null');
+            if (pending && typeof pending.version === 'string' && typeof pending.started === 'number') {
+                this.updateTarget = pending.version; this.updateStarted = pending.started; this.updateServer = pending.server;
+                Deluge.stream.watchUpdate(pending);
+                this.nextUpdatePoll();
+            }
+        } catch (ignore) { /* Session storage is optional. */ }
         this.on('show', this.refresh, this);
+        this.on('beforedestroy', function() { if (this.updateTimer) clearTimeout(this.updateTimer); }, this);
+    },
+    checkUpdate: function() {
+        this.updateTarget = null;
+        this.checkUpdateButton.disable(); this.installUpdateButton.disable();
+        this.updateInfo.setValue('Проверка GitHub…');
+        deluge.client.stream.check_plugin_update({scope: this, success: function() { this.pollUpdate(); },
+            failure: function(error) { if (!this.isDestroyed) { this.updateInfo.setValue(Deluge.stream.error(error)); this.checkUpdateButton.enable(); } }});
+    },
+    installUpdate: function() {
+        var target = this.availableVersion;
+        if (!target) return;
+        Ext.Msg.confirm('Обновление Stream', 'Установить версию ' + Ext.util.Format.htmlEncode(target) +
+            '? deluged и deluge-web будут перезапущены; текущие просмотры и скачивания прервутся. Настройки и торренты сохранятся.', function(answer) {
+            if (answer !== 'yes' || this.isDestroyed) return;
+            this.updateTarget = target;
+            this.updateStarted = Date.now();
+            var pending = {version: target, started: this.updateStarted, server: this.updateServer, host: this.updateHost};
+            try { sessionStorage.setItem('streamPendingUpdate', JSON.stringify(pending)); } catch (ignore) {}
+            Deluge.stream.watchUpdate(pending);
+            this.checkUpdateButton.disable(); this.installUpdateButton.disable();
+            deluge.client.stream.install_plugin_update(target, {scope: this, success: function() { this.pollUpdate(); },
+                failure: function(error) { if (!this.isDestroyed) { this.clearUpdateTarget(); this.updateInfo.setValue(Deluge.stream.error(error)); this.checkUpdateButton.enable(); } }});
+        }, this);
+    },
+    clearUpdateTarget: function() {
+        this.updateTarget = null;
+        if (window.streamUpdateWatch) { clearInterval(window.streamUpdateWatch); window.streamUpdateWatch = null; }
+        try { sessionStorage.removeItem('streamPendingUpdate'); } catch (ignore) {}
+    },
+    nextUpdatePoll: function() {
+        if (this.isDestroyed) return;
+        if (this.updateTimer) clearTimeout(this.updateTimer);
+        this.updateTimer = setTimeout(function() { if (!this.isDestroyed) this.pollUpdate(); }.createDelegate(this), 1500);
+    },
+    pollUpdate: function() {
+        if (this.isDestroyed) return;
+        if (this.updateTarget && Date.now() - this.updateStarted > 180000) {
+            this.updateInfo.setValue('Перезапуск не подтверждён. Проверьте подключение к daemon и версии обеих частей; при необходимости перезапустите службы вручную.');
+            this.clearUpdateTarget(); this.checkUpdateButton.enable(); return;
+        }
+        deluge.client.stream.get_plugin_update_status({scope: this, success: function(status) {
+            if (this.isDestroyed) return;
+            if (status.state === 'checked' && !this.updateTarget) {
+                this.availableVersion = status.available ? status.version : null;
+                this.updateServer = status.server;
+                this.updateHost = status.host_id;
+                this.releaseUrl = status.url;
+                this.releaseButton.setDisabled(!this.releaseUrl);
+                this.installUpdateButton.setDisabled(!status.available);
+                this.checkUpdateButton.enable();
+                this.updateInfo.setValue(Ext.util.Format.htmlEncode('Core: ' + status.core_version + '; Web: ' + status.web_version + '. ' +
+                    (status.available ? 'Доступна версия ' + status.version + '.' : 'Новых стабильных релизов нет.')));
+            } else if (status.state === 'error') {
+                this.clearUpdateTarget();
+                this.updateInfo.setValue(Deluge.stream.error(status.error) + ' Обновление обеих частей не подтверждено; пакеты могли быть установлены частично.');
+                this.checkUpdateButton.enable();
+            } else if (this.updateTarget && (status.state === 'idle' || status.state === 'restarting')) {
+                this.updateInfo.setValue('Ожидание подключения после перезапуска…');
+                deluge.client.stream.get_web_status({scope: this, success: function(info) {
+                    if (this.isDestroyed) return;
+                    if (info.available && info.plugin_version === this.updateTarget && info.update_server === this.updateServer) {
+                        this.updateInfo.setValue(Ext.util.Format.htmlEncode('Обновление завершено: core и web ' + this.updateTarget + '. Перезагрузите страницу браузера.'));
+                        this.clearUpdateTarget(); this.checkUpdateButton.enable();
+                    } else this.nextUpdatePoll();
+                }, failure: this.nextUpdatePoll});
+            } else {
+                this.updateInfo.setValue(status.state === 'preparing' ? 'Скачивание и проверка пакетов…' : status.state === 'installing' ? 'Установка пакетов…' : 'Проверка GitHub…');
+                this.nextUpdatePoll();
+            }
+        }, failure: function() {
+            if (this.isDestroyed) return;
+            if (this.updateTarget) { this.updateInfo.setValue('Ожидание подключения после перезапуска…'); this.nextUpdatePoll(); }
+            else { this.updateInfo.setValue('Проверка недоступна: подключитесь к daemon.'); this.checkUpdateButton.enable(); }
+        }});
     },
     refresh: function() {
         deluge.client.stream.get_web_status({scope: this, success: function(status) {

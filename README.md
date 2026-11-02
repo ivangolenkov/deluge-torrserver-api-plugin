@@ -8,7 +8,8 @@ SQLite, FIFO и встроенные TorrServer HTTP/Range/preload с неско
 По его разрешению фаза 4 выполнена раньше: настройки и действия Web UI, tickets,
 готовые file/ZIP downloads. Полные ARM64/x86_64 check, Chromium и раздельные core/web
 контейнеры проверены. [Отчёт и ограничения](tasks/implementation/phase4-report.md).
-Hosted run и релиза нет.
+Опубликованные версии доступны в [GitHub Releases](https://github.com/ivangolenkov/deluge-torrserver-api-plugin/releases).
+Наличие релиза не закрывает перечисленные ниже непроверенные сценарии.
 
 Фаза 5 в работе: локальная упаковка и автоматизация продолжаются, LICENSE
 пользователь создаст позже; его отсутствие не блокирует выпуск. По решению
@@ -21,11 +22,16 @@ Hosted run и релиза нет.
 Фаза 6 завершена: [проверки и ограничения](tasks/implementation/phase6-report.md).
 Это не доступ ко всей локальной карточке Lampa.
 
+Фаза 7 завершена: добавлены проверка GitHub Releases и обновление обеих частей
+из настроек со штатным перезапуском. [Проверки и ограничения](tasks/implementation/phase7-report.md).
+Эта доработка ещё не опубликована; первую версию с updater нужно установить
+обычным способом в deluged и deluge-web.
+
 Локальный candidate, manifest/checksums, Docker Compose, volumes и release gates:
 [инструкция поставки](docs/delivery.md). Это ещё не завершённая фаза 5 и не релиз.
 Там же описаны offline backup/restore, `test-delivery` для миграции/замены плагина
 и отдельный `test-performance`; результаты локальной VM не заменяют приёмку ПК/HDD.
-[Сводка A01–A27 и открытые проверки](docs/acceptance.md).
+[Сводка A01–A28 и открытые проверки](docs/acceptance.md).
 Direct-read готовых файлов прошёл локальную нагрузку: 900 секунд, два потока
 по ~50 Mbit/s с pieces 64 KiB и 1000 отмен. Это не заменяет приёмку целевого ПК/HDD;
 условия стенда и ограничения описаны в отчёте.
@@ -425,6 +431,23 @@ Backpressure проверяется отдельно для native и direct rea
 
 ## Web UI и скачивание готовых данных
 
+В **Preferences → Stream → Обновление Stream** доступны кнопки **Проверить
+обновления**, **Открыть релиз** и **Установить обновление**. Проверка обращается
+к стабильным GitHub Releases этого проекта; сама ничего не устанавливает.
+Администратор подтверждает установку и прерывание текущих передач. Плагин
+подбирает egg отдельно для Python core и web, проверяет совместимость и SHA-256,
+подготавливает оба пакета и перезапускает оба процесса штатно, сохраняя состояние.
+После подключения проверяются фактически загруженные версии; обновите страницу
+браузера, чтобы загрузить новые scripts. Подробности и восстановление —
+[обновление и резервная копия](docs/delivery.md).
+
+Для обычных Linux-запусков `deluged`/`deluge-web` используется повторный exec
+после завершения reactor, с прежними PID, аргументами, окружением и профилями.
+Не требуются root, доступ к systemd или Docker socket. Нестандартный embedded
+запуск через другой Python entry point не поддерживает автоматический restart.
+Оба профиля должны быть доступны для записи, оба процесса — иметь HTTPS-доступ
+к GitHub. Проверки и границы приведены в [отчёте фазы 7](tasks/implementation/phase7-report.md).
+
 Установите один и тот же egg в core и отдельный deluge-web тестового стенда,
 включите Stream и подключитесь к daemon. В **Preferences → Stream** администратор
 может изменить все настройки из `config.py`. Неверные значения не применяются;
@@ -599,7 +622,7 @@ native file entries в проверке путей, 32 DB-работы/упра�
 
 - [Техническое задание](SPEC.md) — поведение и приёмочные сценарии A01–A26.
 - [Правила работы агентов](AGENTS.md) — последовательные фазы, проверки и отчётность.
-- [План и статус фаз](tasks/README.md) — этапы 0–6 и обязательный Makefile/CI/CD.
+- [План и статус фаз](tasks/README.md) — этапы 0–7 и обязательный Makefile/CI/CD.
 - [Отчёты](tasks/implementation/README.md) — что выполнено и чем проверено.
 
 Завершены [фаза 0](tasks/phase0-feasibility-and-tooling.md), [фаза 1](tasks/phase1-core-persistence-and-ci.md), [фаза 2](tasks/phase2-retention-and-transfer-lifecycle.md) и [фаза 4](tasks/phase4-downloads-zip-and-webui.md). [Фаза 3](tasks/phase3-torrserver-and-streaming.md) в работе: HTTP/streaming реализованы, приёмка Lampa/Num не выполнена. Такой порядок прямо разрешён пользователем. [Фаза 5](tasks/phase5-packaging-and-release.md) в работе; LICENSE отложен пользователем.

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from twisted.internet import defer, task
+from twisted.python.failure import Failure
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--egg", required=True)
@@ -20,7 +21,10 @@ def main(reactor):
     from deluge_stream.webui import WebUI
 
     web = object.__new__(WebUI)
-    remote = SimpleNamespace(connected=lambda: False)
+    remote = SimpleNamespace(
+        connected=lambda: False,
+        connection_info=lambda: ("127.0.0.1", 58846, "fixture"),
+    )
     connection = object()
     with (
         patch("deluge_stream.webui.client", remote),
@@ -66,8 +70,11 @@ def main(reactor):
         late = defer.Deferred()
         replies.append(late)
         waiting = web.get_web_status()
+        generation = web.generation
         web.disable()
         web.enable()
+        web._update_failed(Failure(ValueError("update_cancelled")), generation)
+        assert web.update_state == {"state": "idle"}
         late.callback(valid)
         assert (yield waiting)["reason"] == "web_disabled"
         late = defer.Deferred()

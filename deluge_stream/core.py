@@ -5,6 +5,7 @@ import secrets
 import sys
 
 from deluge.common import get_version
+from deluge.configmanager import get_config_dir
 from deluge.core.rpcserver import export
 from deluge.plugins.pluginbase import CorePluginBase
 from twisted.internet import defer, reactor
@@ -17,6 +18,7 @@ from .lifecycle import PolicyService
 from .policy_adapter import PolicyAdapter, check_runtime
 from .ranges import InvalidRange, UnsatisfiableRange, resolve_range
 from .torrserver import TorrServer
+from .update_service import UpdateService
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class Core(CorePluginBase):
         self.listener = None
         self.adapter = None
         self.server = None
+        self.updates = None
         self._shutdown_id = reactor.addSystemEventTrigger(
             "before", "shutdown", self._shutdown
         )
@@ -40,6 +43,7 @@ class Core(CorePluginBase):
         self.active = None
         try:
             check_runtime()
+            self.updates = UpdateService(reactor, get_config_dir(), "core")
             self.policy = PolicyService(reactor, PolicyAdapter)
             yield self.policy.open()
             if self._closing is not None:
@@ -108,6 +112,8 @@ class Core(CorePluginBase):
         if self.policy is not None:
             self.policy.quiescing = True
             self.policy.retention.stop()
+        if self.updates is not None:
+            yield self.updates.close()
         if self.active is not None:
             request = self.active.request
             self.active.stopProducing()
@@ -235,6 +241,31 @@ class Core(CorePluginBase):
         if not self.policy.adapter.actor()[1]:
             raise ValueError("forbidden")
         return dict(self.policy.config)
+
+    def _update_admin(self, api_version):
+        self._version(api_version)
+        if not self.policy or not self.policy.adapter.actor()[1]:
+            raise ValueError("forbidden")
+
+    @export(10)
+    def update_check(self, api_version):
+        self._update_admin(api_version)
+        return self.updates.run("check")
+
+    @export(10)
+    def update_prepare(self, api_version, token):
+        self._update_admin(api_version)
+        return self.updates.run("prepare", token)
+
+    @export(10)
+    def update_commit(self, api_version, token):
+        self._update_admin(api_version)
+        return self.updates.run("commit", token)
+
+    @export(10)
+    def update_restart(self, api_version, token):
+        self._update_admin(api_version)
+        return self.updates.restart(token)
 
     @export(5)
     def create_download_ticket(

@@ -1,9 +1,42 @@
 """Initialize only fresh profiles; never rewrite policy or recursively chown payload."""
 
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
+
+
+def install_packaged_egg(egg, plugins):
+    from pkg_resources import parse_version
+
+    pattern = r"Stream-(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+|\.dev\d+)?)-py(\d+\.\d+)\.egg"
+    shipped = re.fullmatch(pattern, egg.name)
+    if not shipped:
+        raise ValueError("invalid packaged Stream egg")
+    installed = list(plugins.glob("Stream-*.egg"))
+    versions = []
+    for path in installed:
+        match = re.fullmatch(pattern, path.name)
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or not match
+            or match[2] != shipped[2]
+        ):
+            raise ValueError("incompatible installed Stream egg; check Python/profile")
+        versions.append(parse_version(match[1]))
+    if versions and max(versions) > parse_version(shipped[1]):
+        # Keep a UI-installed update across container recreation; never downgrade.
+        return
+    destination = plugins / egg.name
+    if destination.exists():
+        if destination.read_bytes() != egg.read_bytes():
+            raise ValueError(
+                "same Stream version has different content; check image/profile"
+            )
+        return
+    shutil.copyfile(egg, destination)
 
 
 def identity(value):
@@ -20,14 +53,7 @@ def prepare(role):
     (egg,) = Path("/opt/plugin").glob("*.egg")
     plugins = profile / "plugins"
     plugins.mkdir(exist_ok=True)
-    installed = list(plugins.glob("Stream-*.egg"))
-    if any(path.name != egg.name for path in installed):
-        raise ValueError(
-            "old Stream egg present: back up profile, remove old egg explicitly"
-        )
-    destination = plugins / egg.name
-    if not destination.exists() or destination.read_bytes() != egg.read_bytes():
-        shutil.copyfile(egg, destination)
+    install_packaged_egg(egg, plugins)
     password = Path(os.environ["STREAM_RPC_PASSWORD_FILE"]).read_text().strip()
     if len(password) < 24 or any(char.isspace() or char == ":" for char in password):
         raise ValueError(

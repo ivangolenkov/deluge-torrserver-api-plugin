@@ -1,4 +1,4 @@
-# Сводка приёмки A01–A27
+# Сводка приёмки A01–A28
 
 Это указатель на доказательства, **не сертификат готовности продукта**. «Авто»
 означает проверенную часть сценария в изолированных Linux-профилях с установленным
@@ -11,7 +11,8 @@ Host — macOS ARM64/Docker Linux VM; x86_64 локально эмулирует
 [фаза 3](../tasks/implementation/phase3-report.md),
 [фаза 4](../tasks/implementation/phase4-report.md),
 [фаза 5](../tasks/implementation/phase5-report.md),
-[фаза 6](../tasks/implementation/phase6-report.md).
+[фаза 6](../tasks/implementation/phase6-report.md),
+[фаза 7](../tasks/implementation/phase7-report.md).
 
 | ID | Проверенная часть и основной источник | Открытая граница |
 | --- | --- | --- |
@@ -42,6 +43,7 @@ Host — macOS ARM64/Docker Linux VM; x86_64 локально эмулирует
 | A25 | Авто: ARM64 и эмулируемый x86_64 installed/native/check/Compose; фазы 4/5 | Native hosted runners и целевой ПК/HDD не проверены |
 | A26 | Частично: отсутствие free-space cleanup, SQLite/read disk-full injection; фазы 2/4 | Реально заполненный volume и все streaming/source-add ENOSPC paths |
 | A27 | SQLite CAS/ABA/rollback/миграция, HTTP get/list/set, настоящий Chromium text/JSON/XSS/конфликт/отмена и split core/web; фаза 6 | Реальный интерфейс и кэш Lampa/Num не проверены, browser storage/core errors — fault injection |
+| A28 | Обновление из настроек: native core/web и Chromium, checksum-отказ, права, новые версии после exec, сохранённые policy/metadata/payload; фаза 7 | Разные профили одного контейнера, локальный release fixture; каждый service manager отдельно не проверен. Live GitHub manifest/egg проверены без установки |
 
 ## Новые проверки поставки
 
